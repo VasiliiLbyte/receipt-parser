@@ -22,3 +22,8 @@ processed.jpg
 .vscode/
 .DS_Store
 .env
+
+# Временные файлы Excel
+~$*.xlsx
+~$*.xls
+*.xlsx

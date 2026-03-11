@@ -22,6 +22,21 @@ def process_receipt(image_path):
     data = extract_receipt_data_from_image(prepared_path)
     return data
 
+def auto_fit_columns(worksheet):
+    """Автоматически подбирает ширину колонок по содержимому"""
+    for col in worksheet.columns:
+        max_length = 0
+        column_letter = get_column_letter(col[0].column)
+        for cell in col:
+            try:
+                if cell.value and len(str(cell.value)) > max_length:
+                    max_length = len(str(cell.value))
+            except:
+                pass
+        adjusted_width = min(max_length + 2, 50)
+        worksheet.column_dimensions[column_letter].width = adjusted_width
+
+
 def save_to_excel(results, filename="receipts.xlsx"):
     """Сохраняет результаты в Excel-файл с двумя листами: сводка и товары."""
     wb = Workbook()
@@ -66,11 +81,12 @@ def save_to_excel(results, filename="receipts.xlsx"):
                         max_length = len(str(cell.value))
                 except:
                     pass
-        adjusted_width = min(max_length + 2, 50)
-        ws_summary.column_dimensions[column_letter].width = adjusted_width
+        auto_fit_columns(ws_summary)
+
     
     # --- Лист 2: Товары (детализация) ---
-    ws_items = wb.create_sheet("Товары")
+    auto_fit_columns(ws_items)
+
     
     # Заголовки для товаров
     items_headers = ["№ чека", "Организация", "ИНН", "Дата", 
@@ -141,8 +157,10 @@ def main():
                  if f.lower().endswith(('.jpg', '.jpeg', '.png'))]
     
     if not files:
-        print("❌ Не найдено изображений для обработки.")
+        print(f"❌ Не найдено изображений (.jpg, .jpeg, .png) по пути: {path}")
+        print("💡 Убедитесь, что папка содержит файлы с расширением .jpg, .jpeg или .png")
         return
+
     
     results = []
     for f in files:
