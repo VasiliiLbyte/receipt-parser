@@ -4,6 +4,7 @@ import json
 import os
 import re
 import datetime
+import time
 from dotenv import load_dotenv
 from pathlib import Path
 
@@ -45,7 +46,7 @@ def postprocess_data(data):
                 dt = datetime.datetime.strptime(data["date"], fmt)
                 data["date"] = dt.strftime("%Y-%m-%d")
                 break
-            except:
+            except Exception:
                 pass
     
     # Исправляем в названиях товаров: замена "НАС" на "НДС"
@@ -61,7 +62,7 @@ def postprocess_data(data):
                 if key in item and item[key] is not None:
                     try:
                         item[key] = float(item[key])
-                    except:
+                    except Exception:
                         pass
     return data
 
@@ -156,29 +157,46 @@ def extract_receipt_data_from_image(image_path):
     }
     
     print("📤 Отправка запроса к OpenAI Vision API...")
-    try:
-        response = requests.post(API_URL, headers=headers, json=payload, timeout=60)
-        print(f"📊 Статус ответа: {response.status_code}")
-        
-        if response.status_code == 200:
-            result = response.json()
-            content = result['choices'][0]['message']['content']
-            print("📝 Получен ответ от модели")
-            
-            cleaned_content = extract_json_from_response(content)
-            try:
-                data = json.loads(cleaned_content)
-                data = postprocess_data(data)
-                print("✅ JSON успешно распарсен и постобработан")
-                return data
-            except json.JSONDecodeError as e:
-                print(f"❌ Ошибка парсинга JSON: {e}")
-                print("Содержимое ответа:", content)
+    
+    max_retries = 3  # Максимум 3 попытки
+    for attempt in range(1, max_retries + 1):
+        print(f"📤 Отправка запроса к OpenAI Vision API (попытка {attempt}/{max_retries})...")
+        try:
+            response = requests.post(API_URL, headers=headers, json=payload, timeout=60)
+            print(f"📊 Статус ответа: {response.status_code}")
+
+            if response.status_code == 200:
+                result = response.json()
+                content = result['choices'][0]['message']['content']
+                print("📝 Получен ответ от модели")
+
+                cleaned_content = extract_json_from_response(content)
+                try:
+                    data = json.loads(cleaned_content)
+                    data = postprocess_data(data)
+                    print("✅ JSON успешно распарсен и постобработан")
+                    return data
+                except json.JSONDecodeError as e:
+                    print(f"❌ Ошибка парсинга JSON: {e}")
+                    print("Содержимое ответа:", content)
+                    return None
+
+            elif response.status_code == 429:
+                # Превышен лимит — ждём и пробуем снова
+                wait = 10 * attempt
+                print(f"⏳ Превышен лимит запросов. Ждём {wait} секунд...")
+                time.sleep(wait)
+
+            else:
+                print(f"❌ Ошибка API: {response.status_code}")
+                print(response.text)
                 return None
-        else:
-            print(f"❌ Ошибка API: {response.status_code}")
-            print(response.text)
-            return None
-    except Exception as e:
-        print(f"❌ Исключение при запросе: {e}")
-        return None
+
+        except Exception as e:
+            print(f"❌ Исключение при запросе (попытка {attempt}): {e}")
+            if attempt < max_retries:
+                print(f"🔄 Повторяем через 5 секунд...")
+                time.sleep(5)
+
+    print("❌ Все попытки исчерпаны. Не удалось получить ответ от API.")
+    return None
