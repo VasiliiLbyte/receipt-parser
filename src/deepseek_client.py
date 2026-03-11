@@ -5,7 +5,6 @@ import re
 from dotenv import load_dotenv
 from pathlib import Path
 
-# Явно указываем путь к .env в корне проекта
 env_path = Path(__file__).parent.parent / '.env'
 load_dotenv(dotenv_path=env_path)
 
@@ -27,38 +26,6 @@ def extract_receipt_data(receipt_text):
         "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
         "Content-Type": "application/json"
     }
-    
-    prompt = f"""... (ваш промпт) ..."""
-    
-    payload = {
-        "model": "deepseek-chat",
-        "messages": [{"role": "user", "content": prompt}],
-        "temperature": 0.0,
-        "max_tokens": 2000
-    }
-    
-    try:
-        response = requests.post(API_URL, headers=headers, json=payload, timeout=30)
-        print(f"Статус ответа: {response.status_code}")
-        if response.status_code == 200:
-            result = response.json()
-            content = result['choices'][0]['message']['content']
-            print("Сырой ответ от DeepSeek (первые 500 символов):", content[:500])
-            cleaned_content = extract_json_from_response(content)
-            try:
-                data = json.loads(cleaned_content)
-                print("JSON успешно распарсен.")
-                return data
-            except json.JSONDecodeError as e:
-                print(f"Ошибка парсинга JSON: {e}")
-                print("Очищенный контент:", cleaned_content)
-                return None
-        else:
-            print(f"Ошибка API: {response.status_code} - {response.text}")
-            return None
-    except Exception as e:
-        print(f"Исключение при запросе: {e}")
-        return None
     
     prompt = f"""
 Ты — помощник, который извлекает структурированные данные из текста кассового чека. 
@@ -91,20 +58,25 @@ def extract_receipt_data(receipt_text):
         "max_tokens": 2000
     }
     
-    response = requests.post(API_URL, headers=headers, json=payload)
-    
-    if response.status_code == 200:
-        result = response.json()
-        content = result['choices'][0]['message']['content']
-        # Очищаем ответ от Markdown-обрамления
-        cleaned_content = extract_json_from_response(content)
-        try:
-            data = json.loads(cleaned_content)
-            return data
-        except json.JSONDecodeError:
-            print("Ошибка: ответ не в формате JSON. Содержимое ответа:")
-            print(content)
+    try:
+        response = requests.post(API_URL, headers=headers, json=payload, timeout=30)
+        print(f"Статус ответа: {response.status_code}")
+        if response.status_code == 200:
+            result = response.json()
+            content = result['choices'][0]['message']['content']
+            print("Сырой ответ от DeepSeek (первые 500 символов):", content[:500])
+            cleaned_content = extract_json_from_response(content)
+            try:
+                data = json.loads(cleaned_content)
+                print("JSON успешно распарсен.")
+                return data
+            except json.JSONDecodeError as e:
+                print(f"Ошибка парсинга JSON: {e}")
+                print("Очищенный контент:", cleaned_content)
+                return None
+        else:
+            print(f"Ошибка API: {response.status_code} - {response.text}")
             return None
-    else:
-        print(f"Ошибка API: {response.status_code} - {response.text}")
+    except Exception as e:
+        print(f"Исключение при запросе: {e}")
         return None
