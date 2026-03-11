@@ -4,29 +4,22 @@ import csv
 from openpyxl import Workbook
 from openpyxl.styles import Font, Alignment, PatternFill
 from openpyxl.utils import get_column_letter
-from src.ocr_utils import image_to_text
-from src.deepseek_client import extract_receipt_data
+from src.vision_utils import prepare_image
+from src.openai_client import extract_receipt_data_from_image
 
 def process_receipt(image_path):
-    print(f"Обработка {image_path}...")
-    text = image_to_text(image_path)
-    if not text.strip():
-        print("Не удалось распознать текст (пустой результат).")
+    """Обрабатывает одно изображение через OpenAI Vision API"""
+    print(f"\n🔄 Обработка {image_path}...")
+    
+    # Проверяем изображение
+    try:
+        prepared_path = prepare_image(image_path)
+    except Exception as e:
+        print(f"❌ Ошибка при подготовке изображения: {e}")
         return None
     
-    print(f"Распознанный текст (первые 200 символов): {text[:200]}")
-    debug_filename = os.path.splitext(os.path.basename(image_path))[0] + "_ocr.txt"
-    with open(debug_filename, "w", encoding="utf-8") as f:
-        f.write(text)
-    print(f"Распознанный текст сохранён в {debug_filename}")
-    
-    # Сохраняем распознанный текст для отладки
-    debug_filename = os.path.splitext(os.path.basename(image_path))[0] + "_ocr.txt"
-    with open(debug_filename, "w", encoding="utf-8") as f:
-        f.write(text)
-    print(f"Распознанный текст сохранён в {debug_filename}")
-    
-    data = extract_receipt_data(text)
+    # Отправляем напрямую в OpenAI Vision
+    data = extract_receipt_data_from_image(prepared_path)
     return data
 
 def save_to_excel(results, filename="receipts.xlsx"):
@@ -65,7 +58,6 @@ def save_to_excel(results, filename="receipts.xlsx"):
     # Автоширина колонок на листе сводки
     for col in range(1, len(summary_headers) + 1):
         column_letter = get_column_letter(col)
-        # Определяем максимальную длину в этой колонке
         max_length = 0
         for row in ws_summary.iter_rows(min_col=col, max_col=col):
             for cell in row:
@@ -74,7 +66,7 @@ def save_to_excel(results, filename="receipts.xlsx"):
                         max_length = len(str(cell.value))
                 except:
                     pass
-        adjusted_width = min(max_length + 2, 50)  # ограничим ширину
+        adjusted_width = min(max_length + 2, 50)
         ws_summary.column_dimensions[column_letter].width = adjusted_width
     
     # --- Лист 2: Товары (детализация) ---
@@ -100,7 +92,6 @@ def save_to_excel(results, filename="receipts.xlsx"):
         date = r.get("date", "")
         items = r.get("items", [])
         if not items:
-            # Если нет товаров, добавим одну строку с информацией о чеке
             ws_items.append([idx, organization, inn, date, "Нет данных", "", "", "", "", ""])
         else:
             for item in items:
@@ -134,7 +125,7 @@ def save_to_excel(results, filename="receipts.xlsx"):
     
     # Сохраняем файл
     wb.save(filename)
-    print(f"\nРезультаты сохранены в файл {filename}")
+    print(f"\n✅ Результаты сохранены в файл {filename}")
 
 def main():
     if len(sys.argv) < 2:
@@ -150,7 +141,7 @@ def main():
                  if f.lower().endswith(('.jpg', '.jpeg', '.png'))]
     
     if not files:
-        print("Не найдено изображений для обработки.")
+        print("❌ Не найдено изображений для обработки.")
         return
     
     results = []
@@ -158,14 +149,17 @@ def main():
         res = process_receipt(f)
         if res:
             results.append(res)
+            print(f"✅ Чек обработан успешно")
+        else:
+            print(f"❌ Не удалось обработать чек")
     
     if not results:
-        print("Нет данных для сохранения.")
+        print("❌ Нет данных для сохранения.")
         return
     
-    # Вывод в консоль (как и раньше)
+    # Вывод в консоль
     for i, r in enumerate(results, 1):
-        print(f"\n--- Чек {i} ---")
+        print(f"\n📄 --- Чек {i} ---")
         print(f"Организация: {r.get('organization')}")
         print(f"ИНН: {r.get('inn')}")
         print(f"Дата: {r.get('date')}")

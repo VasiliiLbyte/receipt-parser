@@ -21,3 +21,4 @@ processed.jpg
 # IDE
 .vscode/
 .DS_Store
+.env
