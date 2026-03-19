@@ -70,6 +70,12 @@ def verify_item_names(image_base64: str, pass1_data: dict) -> dict:
   символ за символом. ИНН — это последовательность из 10 или 12 цифр рядом
   со словом "ИНН" на чеке. Если видишь расхождение — исправь. Если нечитаемо
   — оставь как есть из JSON.
+- Также проверь поле "organization": сравни название организации/ИП в JSON
+  с тем, что написано на чеке. Копируй буквально включая ИП/ООО/АО, кавычки,
+  заглавные буквы. Если нечитаемо — оставь как есть из JSON.
+- Также проверь поле "receipt_number": найди номер чека на изображении и
+  сравни с JSON. Копируй только само число/код без префиксов (Чек №, ФД и т.д.).
+  Сохраняй дефисы и буквы внутри номера. Если нечитаемо — оставь как есть.
 
 Результат первичного распознавания:
 {pass1_json}
@@ -142,6 +148,27 @@ def verify_item_names(image_base64: str, pass1_data: dict) -> dict:
                 pass1_data["inn"] = verified_inn_clean
             else:
                 print(f"⚠️  Pass 2 вернул некорректный ИНН ({verified_inn}), оставляем оригинал")
+        
+        # Верифицируем название организации
+        verified_org = pass2_data.get("organization")
+        original_org = pass1_data.get("organization")
+        if verified_org and verified_org != original_org:
+            print(f"🏢 Pass 2 исправил организацию: '{original_org}' → '{verified_org}'")
+            pass1_data["organization"] = verified_org.strip()
+
+        # Верифицируем номер чека
+        verified_receipt = pass2_data.get("receipt_number")
+        original_receipt = pass1_data.get("receipt_number")
+        if verified_receipt and verified_receipt != original_receipt:
+            # Очищаем от префиксов
+            verified_receipt_clean = re.sub(
+                r'^(чек\s*№?|№|receipt\s*#?|#|номер\s*(чека)?|фд)[:\s]*',
+                '', str(verified_receipt), flags=re.IGNORECASE
+            ).strip()
+            verified_receipt_clean = re.sub(r'[^\w\d\-]', '', verified_receipt_clean)
+            if verified_receipt_clean:
+                print(f"🧾 Pass 2 исправил номер чека: '{original_receipt}' → '{verified_receipt_clean}'")
+                pass1_data["receipt_number"] = verified_receipt_clean
         
         return pass1_data
         
