@@ -1,0 +1,29 @@
+# Virtual environment
+venv/
+myenv/
+env/
+ENV/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Environment variables
+.env
+
+# Debug and output files
+debug_*.jpg
+*_ocr.txt
+receipts.xlsx
+receipts.csv
+processed.jpg
+
+# IDE
+.vscode/
+.DS_Store
+.env
+
+# Временные файлы Excel
+~$*.xlsx
+~$*.xls
+*.xlsx

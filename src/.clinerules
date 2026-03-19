@@ -1,0 +1,49 @@
+# Memory Bank - Receipt Parser Project
+
+## Основные файлы
+- `main.py` - запуск парсера
+- `src/openai_client.py` - OpenAI Vision API клиент + postprocess_data()
+- `src/deepseek_client.py` - DeepSeek API клиент
+- `src/vision_utils.py` - утилиты для изображений (поддержка HEIC)
+- `src/config.py` - конфигурация
+
+## Ключевые функции
+### postprocess_data() - нормализация данных:
+1. **Дата**: конвертирует в ГГГГ-ММ-ДД (поддерживает 10+ форматов)
+2. **Номер чека**: удаляет "Чек №", "Receipt #", "Номер чека:", сохраняет дефисы
+3. **Числа**: обрабатывает форматы:
+   - Русский: "1 234,56 руб." → 1234.56
+   - Европейский: "1.234,56" → 1234.56  
+   - Американский: "1,234.56" → 1234.56
+4. **ИНН**: оставляет только цифры, проверяет длину (10/12)
+5. **Товары**: исправляет "НАС" → "НДС", нормализует цены
+
+### Поддержка HEIC (vision_utils.py):
+- Автоматическая конвертация HEIC/HEIF в JPEG
+- Использует pillow-heif библиотеку
+- Сохраняет качество (95%)
+
+## Формат вывода JSON
+```json
+{
+  "organization": "...",
+  "inn": "10/12 цифр",
+  "date": "2025-12-31",
+  "receipt_number": "12345",
+  "items": [...],
+  "total": 1234.56,
+  "total_vat": 205.76
+}
+```
+
+## Тестирование
+- `test_postprocess.py` - тесты postprocess_data()
+- `test_app.py` - интеграционные тесты
+- `test_heic.py` - тест поддержки HEIC
+- `test_receipts/` - тестовые чеки
+
+## Запуск
+```bash
+python main.py путь_к_чеку.jpg  # поддерживает .jpg, .png, .heic, .heif
+python test_app.py
+python test_heic.py
