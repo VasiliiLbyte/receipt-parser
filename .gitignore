@@ -27,3 +27,8 @@ processed.jpg
 ~$*.xlsx
 ~$*.xls
 *.xlsx
+
+# Отладочные изображения
+debug_*.jpg
+debug_*.png
+
