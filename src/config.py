@@ -12,6 +12,7 @@ load_dotenv(dotenv_path=env_path)
 # === API КЛЮЧИ ===
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
 
 # === НАСТРОЙКИ ПРИЛОЖЕНИЯ ===
 MAX_FILE_SIZE_MB = int(os.getenv("MAX_FILE_SIZE_MB", "20"))
