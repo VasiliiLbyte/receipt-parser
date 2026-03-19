@@ -66,6 +66,10 @@ def verify_item_names(image_base64: str, pass1_data: dict) -> dict:
 - Также проверь поле "date": сравни дату в JSON с тем, что написано на чеке.
   Если год отличается — исправь на то, что буквально видишь на чеке.
   Формат ответа: ГГГГ-ММ-ДД. Если дата нечитаема — оставь как есть из JSON.
+- Также проверь поле "inn": сравни ИНН в JSON с тем, что написано на чеке
+  символ за символом. ИНН — это последовательность из 10 или 12 цифр рядом
+  со словом "ИНН" на чеке. Если видишь расхождение — исправь. Если нечитаемо
+  — оставь как есть из JSON.
 
 Результат первичного распознавания:
 {pass1_json}
@@ -126,6 +130,18 @@ def verify_item_names(image_base64: str, pass1_data: dict) -> dict:
         if verified_date and verified_date != original_date:
             print(f"📅 Pass 2 исправил дату: {original_date} → {verified_date}")
             pass1_data["date"] = verified_date
+        
+        # Верифицируем ИНН если OpenRouter вернул отличающийся
+        verified_inn = pass2_data.get("inn")
+        original_inn = pass1_data.get("inn")
+        if verified_inn and verified_inn != original_inn:
+            # Очищаем до цифр перед сравнением
+            verified_inn_clean = re.sub(r'\D', '', str(verified_inn))
+            if len(verified_inn_clean) in [10, 12]:
+                print(f"🔢 Pass 2 исправил ИНН: {original_inn} → {verified_inn_clean}")
+                pass1_data["inn"] = verified_inn_clean
+            else:
+                print(f"⚠️  Pass 2 вернул некорректный ИНН ({verified_inn}), оставляем оригинал")
         
         return pass1_data
         
