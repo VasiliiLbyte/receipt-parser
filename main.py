@@ -56,14 +56,26 @@ def save_to_excel(results, filename="receipts.xlsx"):
         cell.alignment = Alignment(horizontal="center")
 
     for idx, r in enumerate(results, 1):
+        receipt = r.get("receipt", {}) or {}
+        merchant = r.get("merchant", {}) or {}
+        totals = r.get("totals", {}) or {}
+        taxes = r.get("taxes", {}) or {}
+
+        receipt_number = receipt.get("receipt_number", "")
+        organization = merchant.get("organization", "")
+        inn = merchant.get("inn", "")
+        date = receipt.get("date", "")
+        total = totals.get("total", "")
+        total_vat = taxes.get("total_vat", "")
+
         row = [
             idx,
-            r.get("receipt_number", ""),
-            r.get("organization", ""),
-            r.get("inn", ""),
-            r.get("date", ""),
-            r.get("total", ""),
-            r.get("total_vat", "")
+            receipt_number,
+            organization,
+            inn,
+            date,
+            total,
+            total_vat,
         ]
         ws_summary.append(row)
 
@@ -84,11 +96,14 @@ def save_to_excel(results, filename="receipts.xlsx"):
         cell.alignment = Alignment(horizontal="center")
 
     for idx, r in enumerate(results, 1):
-        organization = r.get("organization", "")
-        inn = r.get("inn", "")
-        date = r.get("date", "")
-        receipt_number = r.get("receipt_number", "")
-        items = r.get("items", [])
+        receipt = r.get("receipt", {}) or {}
+        merchant = r.get("merchant", {}) or {}
+        items = r.get("items", []) or []
+
+        organization = merchant.get("organization", "") or ""
+        inn = merchant.get("inn", "") or ""
+        date = receipt.get("date", "") or ""
+        receipt_number = receipt.get("receipt_number", "") or ""
         if not items:
             ws_items.append([idx, receipt_number, organization, inn, date, "Нет данных", "", "", "", "", ""])
         else:
@@ -146,12 +161,18 @@ def main():
         return
 
     for i, r in enumerate(results, 1):
-        print(f"\n📄 --- Чек {i} (Номер на чеке: {r.get('receipt_number', 'не указан')}) ---")
-        print(f"Организация: {r.get('organization')}")
-        print(f"ИНН: {r.get('inn')}")
-        print(f"Дата: {r.get('date')}")
-        print(f"Всего: {r.get('total')} руб.")
-        print(f"НДС всего: {r.get('total_vat')} руб.")
+        receipt = r.get("receipt", {}) or {}
+        merchant = r.get("merchant", {}) or {}
+        totals = r.get("totals", {}) or {}
+        taxes = r.get("taxes", {}) or {}
+        receipt_number = receipt.get("receipt_number", "не указан")
+
+        print(f"\n📄 --- Чек {i} (Номер на чеке: {receipt_number}) ---")
+        print(f"Организация: {merchant.get('organization')}")
+        print(f"ИНН: {merchant.get('inn')}")
+        print(f"Дата: {receipt.get('date')}")
+        print(f"Всего: {totals.get('total')} руб.")
+        print(f"НДС всего: {taxes.get('total_vat')} руб.")
         print("Товары:")
         for item in r.get('items', []):
             name = item.get('name', '')
