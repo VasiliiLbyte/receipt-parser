@@ -4,7 +4,9 @@ import json
 import re
 import datetime
 import time
-from .config import OPENAI_API_KEY, MAX_RETRIES, API_TIMEOUT
+import copy
+from .config import OPENAI_API_KEY, OPENROUTER_API_KEY, MAX_RETRIES, API_TIMEOUT
+from .result_builder import ResultBuilder
 
 API_URL = "https://api.openai.com/v1/chat/completions"
 
@@ -564,18 +566,38 @@ def extract_receipt_data_from_image(image_path):
 
                 cleaned_content = extract_json_from_response(content)
                 try:
-                    data = json.loads(cleaned_content)
-                    data = postprocess_data(data)
+                    provider_data = json.loads(cleaned_content)
+                    # Keep provider-agnostic raw JSON for traceability in canonical result.
+                    raw_pass1 = copy.deepcopy(provider_data)
+
+                    data = postprocess_data(provider_data)
                     print("✅ JSON успешно распарсен и постобработан")
                     
                     # Pass 2: верификация названий товаров через OpenRouter
+                    passes = [{"name": "pass1", "status": "ok"}]
+                    providers_used = ["openai"]
+                    pass2_status = "skipped"
                     try:
                         from .openrouter_client import verify_item_names
                         data = verify_item_names(base64_image, data)
+                        if OPENROUTER_API_KEY and data.get("items"):
+                            pass2_status = "ok"
+                            providers_used.append("openrouter")
+                        passes.append({"name": "pass2", "status": pass2_status})
                     except Exception as e:
                         print(f"⚠️  Pass 2 пропущен: {e}")
+                        passes.append({"name": "pass2", "status": "skipped"})
                     
-                    return data
+                    # Build canonical internal result structure.
+                    canonical = ResultBuilder.build_from_flat(
+                        data,
+                        warnings=[],
+                        raw_pass1_provider_json=raw_pass1,
+                        raw_pass2_provider_json=None,
+                        providers_used=providers_used,
+                        passes=passes,
+                    )
+                    return canonical
                 except json.JSONDecodeError as e:
                     print(f"❌ Ошибка парсинга JSON: {e}")
                     print("Содержимое ответа:", content)
