@@ -4,7 +4,7 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, Alignment, PatternFill
 from openpyxl.utils import get_column_letter
 from src.vision_utils import prepare_image
-from src.openai_client import extract_receipt_data_from_image
+from src.openai_client_updated import extract_receipt_data_from_image
 
 
 def process_receipt(image_path):

@@ -1,49 +1,125 @@
-# Memory Bank - Receipt Parser Project
+# Cline Rules
 
-## Основные файлы
-- `main.py` - запуск парсера
-- `src/openai_client.py` - OpenAI Vision API клиент + postprocess_data()
-- `src/deepseek_client.py` - DeepSeek API клиент
-- `src/vision_utils.py` - утилиты для изображений (поддержка HEIC)
-- `src/config.py` - конфигурация
+## Project intent
 
-## Ключевые функции
-### postprocess_data() - нормализация данных:
-1. **Дата**: конвертирует в ГГГГ-ММ-ДД (поддерживает 10+ форматов)
-2. **Номер чека**: удаляет "Чек №", "Receipt #", "Номер чека:", сохраняет дефисы
-3. **Числа**: обрабатывает форматы:
-   - Русский: "1 234,56 руб." → 1234.56
-   - Европейский: "1.234,56" → 1234.56  
-   - Американский: "1,234.56" → 1234.56
-4. **ИНН**: оставляет только цифры, проверяет длину (10/12)
-5. **Товары**: исправляет "НАС" → "НДС", нормализует цены
+This repository is a receipt parsing project built around a local Python processing pipeline.
+Do not treat it as a distributed cloud platform unless the task explicitly requires that.
 
-### Поддержка HEIC (vision_utils.py):
-- Автоматическая конвертация HEIC/HEIF в JPEG
-- Использует pillow-heif библиотеку
-- Сохраняет качество (95%)
+The goal of changes is to improve:
+- receipt extraction quality;
+- normalization and validation quality;
+- code clarity;
+- provider isolation;
+- testability.
 
-## Формат вывода JSON
-```json
-{
-  "organization": "...",
-  "inn": "10/12 цифр",
-  "date": "2025-12-31",
-  "receipt_number": "12345",
-  "items": [...],
-  "total": 1234.56,
-  "total_vat": 205.76
-}
-```
+Do not introduce speculative architecture.
 
-## Тестирование
-- `test_postprocess.py` - тесты postprocess_data()
-- `test_app.py` - интеграционные тесты
-- `test_heic.py` - тест поддержки HEIC
-- `test_receipts/` - тестовые чеки
+---
 
-## Запуск
-```bash
-python main.py путь_к_чеку.jpg  # поддерживает .jpg, .png, .heic, .heif
-python test_app.py
-python test_heic.py
+## Architecture rules
+
+- Preserve a modular monolith architecture.
+- Do not introduce microservices, service mesh, Kubernetes, message brokers, databases, or API layers unless the task explicitly asks for them.
+- Keep the main processing flow centered around one receipt pipeline.
+- Treat `main.py` as an entrypoint, not as the place for growing domain logic.
+- Keep domain logic inside `src/` in focused modules.
+
+---
+
+## Core design rules
+
+- There must be one canonical receipt-processing pipeline.
+- Provider-specific logic must stay isolated from normalization and validation logic.
+- OCR / Vision / LLM providers are adapters, not the business core.
+- Post-processing and validation are mandatory parts of parsing, not optional cleanup.
+- Export formats must not define internal domain structures.
+- Prefer structured data objects over ad hoc dictionaries whenever possible.
+
+---
+
+## Change strategy
+
+- Make the smallest correct change that solves the task.
+- Prefer improving existing modules over creating new abstraction layers.
+- Do not rename or move files aggressively unless it clearly improves the architecture.
+- Do not perform broad refactors unless the task explicitly requests refactoring.
+- Avoid adding framework complexity when a simple function or module is enough.
+
+---
+
+## Provider rules
+
+- Keep provider implementations swappable.
+- Do not leak provider-specific response formats into shared business logic.
+- Normalize provider outputs before validation.
+- Centralize retry, timeout, and fallback behavior instead of scattering it across modules.
+- Do not hardwire the whole project to a single provider.
+
+---
+
+## Validation rules
+
+- Protect and strengthen the validation layer.
+- Keep logic for dates, totals, INN, VAT, and number normalization explicit and testable.
+- Do not hide corrections silently if warnings or traceability are needed.
+- Prefer deterministic correction rules over vague heuristics.
+- If extraction is uncertain, preserve uncertainty explicitly.
+
+---
+
+## Testing rules
+
+- Treat tests as architectural guidance, not as afterthoughts.
+- When changing parsing behavior, check whether existing tests still reflect intended behavior.
+- When fixing a bug, prefer adding or updating a targeted test.
+- Do not weaken assertions just to make tests pass.
+- Keep parsing logic easy to test in isolation.
+
+---
+
+## Implementation rules
+
+- Separate these concerns:
+  - input handling;
+  - provider calls;
+  - normalization;
+  - validation;
+  - result building;
+  - export/output.
+- Avoid mixing file I/O, network calls, and domain logic in one function.
+- Prefer pure functions for normalization and validation steps.
+- Keep function responsibilities narrow.
+- Preserve readability over cleverness.
+
+---
+
+## Output rules
+
+- Keep one canonical internal result format.
+- Treat Excel/CSV/output files as presentation layers.
+- Do not let export-specific assumptions distort parsing logic.
+- Include warnings or metadata when partial extraction matters.
+
+---
+
+## Safety rules
+
+- Do not invent requirements that are not stated in the task.
+- Do not rewrite working code without a concrete reason.
+- Do not replace tested logic with “cleaner” abstractions unless behavior is preserved.
+- Do not remove fallback behavior or edge-case handling without checking tests.
+- When uncertain, prefer preserving current behavior and making a local improvement.
+
+---
+
+## Decision rule
+
+Before making a change, ask:
+
+1. Is this change inside the existing pipeline?
+2. Does it isolate provider logic rather than spread it?
+3. Does it improve validation clarity?
+4. Does it preserve or improve testability?
+5. Is it the smallest reasonable change?
+
+If the answer to several of these is “no”, revise the approach.
