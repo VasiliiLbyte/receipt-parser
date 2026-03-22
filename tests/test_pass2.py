@@ -6,16 +6,17 @@
 1. Конфигурацию OpenRouter
 2. Интеграцию Pass2 в orchestrator
 3. Корректность обработки метаданных
+
+ВНИМАНИЕ: Эти тесты делают реальные API вызовы!
+Запускайте с: pytest -m slow tests/test_pass2.py
 """
 
 import sys
 import os
-import json
 import base64
 from pathlib import Path
 
-# Добавляем путь к проекту
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import pytest
 
 from src.config import OPENROUTER_API_KEY
 from src.openrouter_client import verify_item_names
@@ -39,6 +40,7 @@ def test_configuration():
         return True  # Все равно продолжаем
 
 
+@pytest.mark.slow
 def test_openrouter_function():
     """Тестирование функции verify_item_names с mock-данными"""
     print("\n🔍 Тестирование функции verify_item_names...")
@@ -94,6 +96,7 @@ def test_openrouter_function():
         return False
 
 
+@pytest.mark.slow
 def test_orchestrator_integration():
     """Проверка интеграции Pass2 в orchestrator"""
     print("\n🔄 Проверка интеграции Pass2 в orchestrator...")

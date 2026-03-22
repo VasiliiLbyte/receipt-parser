@@ -1,4 +1,5 @@
 # Virtual environment
+.venv/
 venv/
 myenv/
 env/
@@ -8,8 +9,9 @@ ENV/
 __pycache__/
 *.pyc
 
-# Environment variables
+# Environment variables (не коммитить секреты)
 .env
+.env.local
 
 # Debug and output files
 debug_*.jpg
@@ -21,7 +23,6 @@ processed.jpg
 # IDE
 .vscode/
 .DS_Store
-.env
 
 # Временные файлы Excel
 ~$*.xlsx

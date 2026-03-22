@@ -6,19 +6,26 @@
 ## 🏗️ Структура проекта
 
 ### Основные файлы:
-- `main.py` - основной скрипт для запуска парсера
-- `src/openai_client.py` - клиент для работы с OpenAI Vision API
-- `src/deepseek_client.py` - клиент для работы с DeepSeek API
-- `src/vision_utils.py` - утилиты для работы с изображениями
-- `src/config.py` - конфигурация проекта
-- `src/ocr_utils.py` - утилиты для OCR (опционально)
+- `main.py` — CLI: изображения → `extract_receipt_data_from_image` → Excel
+- `src/openai_client.py` — обёртка: pipeline + OpenAI provider
+- `src/providers/openai.py` — запрос к Vision API и сырой JSON
+- `src/pipeline/orchestrator.py` — этапы: extract → normalize → validate → (Pydantic) → ResultBuilder
+- `src/pipeline/normalize.py`, `src/pipeline/validate.py` — нормализация и бизнес-валидация
+- `src/schemas.py` — Pydantic `ReceiptData` / `ReceiptItem` (строгая проверка; при ошибке pipeline продолжает без этого шага)
+- `src/result_builder.py` — канонический вложенный JSON для экспорта
+- `src/deepseek_client.py` — альтернатива по тексту OCR (без полного pipeline)
+- `src/vision_utils.py`, `src/config.py`, `src/ocr_utils.py` — утилиты и конфиг
 
-### Тестовые файлы:
-- `test_app.py` - тестовое приложение
-- `test_postprocess.py` - тестирование функции postprocess_data
-- `test_debug.py` - отладочные тесты
-- `test_simple.py` - простые тесты
-- `test_receipts/` - папка с тестовыми чеками
+### Тесты:
+- Каталог `tests/`, фикстуры — `tests/conftest.py`, примеры чеков — `tests/test_receipts/`
+- Постоянные правила для Cursor: `.cursor/rules/*.mdc`
+
+### Виртуальное окружение (рекомендуется):
+```bash
+python3 -m venv .venv
+source .venv/bin/activate   # Windows: .venv\Scripts\activate
+pip install -r requirements.txt
+```
 
 ## 🔧 Основные функции
 
@@ -108,10 +115,10 @@ python main.py путь_к_изображению.jpg
 
 ### 4. Тестирование
 ```bash
-python test_app.py
-python test_postprocess.py
-python test_heic.py
+pytest                        # быстрые тесты (без маркера slow)
+pytest -m slow                # интеграция с реальным OpenAI API
 ```
+Таймаут и маркеры заданы в `pytest.ini`.
 
 ## 🔍 Особенности обработки
 
@@ -159,15 +166,13 @@ python test_heic.py
 
 1. Добавить поддержку большего количества форматов чеков
 2. Улучшить обработку товаров с НДС
-3. Добавить валидацию данных
+3. ~~Добавить валидацию данных~~ — базовая Pydantic-валидация в pipeline (`src/schemas.py`)
 4. Создать веб-интерфейс
 5. Добавить базу данных для хранения результатов
 
 ## 🔗 Зависимости
-- openai
-- requests
-- python-dotenv
-- pillow (для работы с изображениями)
+- requests, python-dotenv, pillow, pydantic
+- torch / easyocr / opencv — по `requirements.txt` (Vision и локальный OCR при необходимости)
 
 ## 📝 Примечания
 Проект активно развивается. Текущая версия фокусируется на точности извлечения данных и надежности постобработки.
