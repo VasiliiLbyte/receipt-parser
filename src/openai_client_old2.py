@@ -47,7 +47,8 @@ def extract_receipt_data_from_image(image_path):
     result = process_receipt_pipeline(
         image_path=image_path,
         provider_extract_func=extract_raw_openai_data,
-        openrouter_verify_func=openrouter_func
+        openrouter_verify_func=openrouter_func,
+        provider_name="openai"
     )
     
     return result

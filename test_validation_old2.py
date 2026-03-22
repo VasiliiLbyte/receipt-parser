@@ -22,8 +22,7 @@ def test_validation_function():
     
     all_passed = True
     for input_date, expected, description in test_cases:
-        result_tuple = _validate_receipt_date(input_date)
-        result = result_tuple[0] if result_tuple else None
+        result = _validate_receipt_date(input_date)
         status = "✅ OK" if result == expected else "❌ ОШИБКА"
         print(f"{description}: {input_date} -> {result} {status}")
         if result != expected:
