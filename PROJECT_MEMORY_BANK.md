@@ -7,9 +7,12 @@
 
 ### Основные файлы:
 - `main.py` — CLI: изображения → `extract_receipt_data_from_image` → Excel
-- `src/openai_client.py` — обёртка: pipeline + OpenAI provider
-- `src/providers/openai.py` — запрос к Vision API и сырой JSON
-- `src/pipeline/orchestrator.py` — этапы: extract → normalize → validate → (Pydantic) → ResultBuilder
+- `src/openai_client.py` — точка входа: `PIPELINE_VARIANT=c` (OpenRouter → fallback OpenAI) или `legacy` (только OpenAI)
+- `src/providers/openai.py` — OpenAI Vision, модель из `FALLBACK_MODEL` (или `PRIMARY_MODEL` если primary=openai)
+- `src/providers/openrouter_extract.py` — primary Vision через OpenRouter (`PRIMARY_MODEL`)
+- `src/providers/receipt_vision_prompt.py` — общий промпт извлечения (одинаковые правила НДС/названий)
+- `src/pipeline/orchestrator.py` — `process_receipt_pipeline` (legacy), `process_receipt_pipeline_variant_c` (dual-pass)
+- `src/pipeline/quality_gates.py` — оценка качества, `should_run_fallback`, `choose_best_result`
 - `src/pipeline/normalize.py`, `src/pipeline/validate.py` — нормализация и бизнес-валидация
 - `src/schemas.py` — Pydantic `ReceiptData` / `ReceiptItem` (строгая проверка; при ошибке pipeline продолжает без этого шага)
 - `src/result_builder.py` — канонический вложенный JSON для экспорта
@@ -27,17 +30,28 @@ source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
+## Variant C (по умолчанию, `PIPELINE_VARIANT=c`)
+
+**Цепочка:**
+1. **Primary:** OpenRouter Vision, модель по умолчанию `google/gemini-3.1-flash-lite-preview` (`PRIMARY_MODEL`).
+2. Нормализация (`normalize`) → бизнес-валидация (`validate`) → Pydantic (`schemas`).
+3. **Quality gates** (`quality_gates.evaluate_quality`): organization, дата `YYYY-MM-DD`, номер чека, позиции с непустыми именами, `total`, сходимость суммы позиций с `total`, отсутствие недопустимых отрицательных значений, эвристики OCR-мусора.
+4. **`should_run_fallback`:** если извлечение пустое, или Pydantic не прошёл, или (при `ENABLE_QUALITY_GATES=true`) не пройдены гейты — запускается fallback при `ENABLE_FALLBACK=true` и валидном `OPENAI_API_KEY`.
+5. **Fallback:** OpenAI Vision, модель `FALLBACK_MODEL` (по умолчанию `gpt-4o`), те же шаги postprocess + schema + quality.
+6. **`choose_best_result`:** приоритет — валидная схема; затем число заполненных критичных полей; затем `quality.score`; при близких score предпочтение **primary** (стабильность).
+7. Опционально **verify имён** через `openrouter_client.verify_item_names` (если задан `OPENROUTER_API_KEY`).
+8. Сборка `ResultBuilder`: `meta.processing_status` = `ok` или `degraded` (слабый результат / невалидная схема); детали — `meta.pipeline_trace` (без ключей).
+
+**Переменные окружения (см. `.env.example`):** `PIPELINE_VARIANT`, `PRIMARY_PROVIDER`, `PRIMARY_MODEL`, `FALLBACK_PROVIDER`, `FALLBACK_MODEL`, `ENABLE_FALLBACK`, `ENABLE_QUALITY_GATES`.
+
+**Legacy:** `PIPELINE_VARIANT=legacy` — один проход OpenAI + опциональный OpenRouter verify, функция `process_receipt_pipeline`.
+
 ## 🔧 Основные функции
 
 ### 1. `extract_receipt_data_from_image()` (openai_client.py)
-Извлекает данные из изображения чека с помощью OpenAI Vision API.
+Вызовет variant C или legacy в зависимости от `PIPELINE_VARIANT`. Публичный JSON (receipt / merchant / items / …) не менялся; расширены только `meta`.
 
-**Особенности:**
-- Использует GPT-4o с vision capabilities
-- Специальный промпт для точного извлечения данных
-- Постобработка данных функцией `postprocess_data()`
-
-**Ключевые особенности промпта:**
+**Ключевые особенности промпта (общие для OpenAI и OpenRouter):**
 - **Точное копирование названий товаров**: без изменений и перефразирования
 - **НДС считывается с чека**: явный запрет на самостоятельный расчет
 - **Поддержка разных форматов**: дат, чисел, номеров чеков

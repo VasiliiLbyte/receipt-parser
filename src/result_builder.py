@@ -34,6 +34,8 @@ class ResultBuilder:
         providers_used: list[str] | None = None,
         passes: list[dict[str, Any]] | None = None,
         confidence_fields: dict[str, Any] | None = None,
+        processing_status: str | None = None,
+        pipeline_trace: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         warnings = warnings or []
         providers_used = providers_used or []
@@ -55,6 +57,18 @@ class ResultBuilder:
                 }
             )
 
+        meta: dict[str, Any] = {
+            "schema_version": CANONICAL_SCHEMA_VERSION,
+            "processing_status": processing_status or "ok",
+            "providers_used": providers_used,
+            "passes": passes,
+            "confidence": {
+                "fields": confidence_fields,
+            },
+        }
+        if pipeline_trace:
+            meta["pipeline_trace"] = pipeline_trace
+
         canonical = {
             "receipt": {
                 "receipt_number": flat.get("receipt_number"),
@@ -72,15 +86,7 @@ class ResultBuilder:
                 # No VAT calculation in domain post-processing: keep provider/postprocess value.
                 "total_vat": flat.get("total_vat"),
             },
-            "meta": {
-                "schema_version": CANONICAL_SCHEMA_VERSION,
-                "processing_status": "ok",
-                "providers_used": providers_used,
-                "passes": passes,
-                "confidence": {
-                    "fields": confidence_fields,
-                },
-            },
+            "meta": meta,
             "warnings": warnings,
             "raw": {
                 "pass1_provider_json": raw_pass1_provider_json,
