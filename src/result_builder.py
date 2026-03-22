@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from src.pipeline.receipt_number_finalize import finalize_receipt_number_with_status
+
 
 CANONICAL_SCHEMA_VERSION = "1.0"
 
@@ -69,9 +71,14 @@ class ResultBuilder:
         if pipeline_trace:
             meta["pipeline_trace"] = pipeline_trace
 
+        receipt_num_final, receipt_num_status = finalize_receipt_number_with_status(
+            flat.get("receipt_number")
+        )
+        meta["receipt_number_status"] = receipt_num_status
+
         canonical = {
             "receipt": {
-                "receipt_number": flat.get("receipt_number"),
+                "receipt_number": receipt_num_final,
                 "date": flat.get("date"),
             },
             "merchant": {

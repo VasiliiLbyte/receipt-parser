@@ -21,7 +21,9 @@ class ReceiptItem(BaseModel):
     price_per_unit: float = Field(..., description="Цена за единицу")
     quantity: float = Field(..., description="Количество")
     total_price: float = Field(..., description="Итоговая цена позиции")
-    vat_rate: Optional[str] = Field(None, description="Ставка НДС (например, '20%', 'без НДС')")
+    vat_rate: Optional[str] = Field(
+        None, description="Ставка налога с чека: НДС/VAT/GST/TAX (например '20%', 'без НДС', 'no VAT')"
+    )
     vat_amount: Optional[float] = Field(None, description="Сумма НДС")
 
     @field_validator("price_per_unit", "quantity", "total_price")
@@ -48,7 +50,9 @@ class ReceiptData(BaseModel):
     receipt_number: Optional[str] = Field(None, description="Номер чека")
     items: list[ReceiptItem] = Field(default_factory=list, description="Позиции")
     total: Optional[float] = Field(None, description="Итог чека")
-    total_vat: Optional[float] = Field(None, description="НДС по чеку")
+    total_vat: Optional[float] = Field(
+        None, description="Итоговый налог с чека (НДС/VAT/GST/TAX), только напечатанная сумма"
+    )
 
     @field_validator("inn")
     @classmethod

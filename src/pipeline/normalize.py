@@ -333,6 +333,48 @@ def normalize_item_name(name: Any) -> Optional[str]:
     return name_str
 
 
+def apply_item_tax_aliases(item: Dict[str, Any]) -> None:
+    """Явные gst/tax поля строки чека → vat_amount / vat_rate (без распределения с total)."""
+    if item.get("vat_amount") is None or item.get("vat_amount") == "":
+        for key in ("gst_amount", "tax_amount", "tps_amount"):
+            if key in item and item[key] is not None and item[key] != "":
+                item["vat_amount"] = item[key]
+                break
+    vr = item.get("vat_rate")
+    if vr is None or (isinstance(vr, str) and not str(vr).strip()):
+        for key in ("gst_rate", "tax_rate", "gst_percent", "tax_percent"):
+            if key in item and item[key] is not None and str(item[key]).strip():
+                item["vat_rate"] = str(item[key]).strip()
+                break
+
+
+def merge_alternate_total_tax(result: Dict[str, Any]) -> None:
+    """
+    Если total_vat пустой, подставить сумму из явных полей GST/VAT/TAX (как вернула модель).
+    Не перезаписывает уже заданный total_vat (включая 0).
+    """
+    if result.get("total_vat") is not None:
+        return
+    for key in (
+        "total_gst",
+        "gst_total",
+        "total_tax",
+        "tax_total",
+        "vat_total",
+        "gst",
+        "tax",
+    ):
+        if key not in result:
+            continue
+        raw = result[key]
+        if raw is None or raw == "":
+            continue
+        parsed = normalize_number(raw)
+        if parsed is not None:
+            result["total_vat"] = parsed
+            return
+
+
 def normalize_item_numbers(item: Dict[str, Any]) -> Dict[str, Any]:
     """
     Нормализация числовых полей товара.
@@ -384,19 +426,25 @@ def normalize_flat_data(data: Dict[str, Any]) -> Dict[str, Any]:
     for field in ["total", "total_vat"]:
         if field in result and result[field] is not None:
             result[field] = normalize_number(result[field])
-    
+
     # Нормализация товаров
     if "items" in result:
         normalized_items = []
         for item in result["items"]:
             normalized_item = item.copy()
-            
+
             if "name" in normalized_item:
                 normalized_item["name"] = normalize_item_name(normalized_item["name"])
-            
+
+            apply_item_tax_aliases(normalized_item)
             normalized_item = normalize_item_numbers(normalized_item)
             normalized_items.append(normalized_item)
-        
+
         result["items"] = normalized_items
-    
+
+    # Итог GST/VAT/TAX из альтернативных ключей верхнего уровня
+    merge_alternate_total_tax(result)
+    if result.get("total_vat") is not None:
+        result["total_vat"] = normalize_number(result["total_vat"])
+
     return result

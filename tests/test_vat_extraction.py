@@ -5,74 +5,29 @@ from pathlib import Path
 
 
 def test_vat_prompt_changes():
-    """Тестирование изменений в промпте для НДС"""
-    print("🧪 Тестирование извлечения НДС с чека")
+    """Проверка актуального vision-промпта (receipt_vision_prompt) на запрет расчёта налога и GST/VAT."""
+    from src.providers.receipt_vision_prompt import RECEIPT_VISION_PROMPT
+
+    prompt = RECEIPT_VISION_PROMPT
+    print("🧪 Проверка промпта извлечения налога (НДС/VAT/GST)")
     print("=" * 50)
-    
-    # Читаем обновленный промпт
-    with open('src/openai_client.py', 'r', encoding='utf-8') as f:
-        content = f.read()
-    
-    # Ищем промпт
-    import re
-    prompt_match = re.search(r'prompt = """(.*?)"""', content, re.DOTALL)
-    
-    if prompt_match:
-        prompt = prompt_match.group(1)
-        
-        print("📋 Проверка ключевых изменений в промпте:")
-        
-        # Проверяем наличие критически важных фраз
-        critical_phrases = [
-            ("НЕ РАССЧИТЫВАЙ НДС САМОСТОЯТЕЛЬНО!", "✅ Явный запрет расчета НДС"),
-            ("Считывай сумму НДС", "✅ Указание считывать НДС с чека"),
-            ("Если в чеке сумма НДС не указана", "✅ Указание ставить null при отсутствии"),
-            ("НЕ пытайся рассчитать НДС", "✅ Повторный запрет расчета"),
-            ("Только считывай то, что написано в чеке", "✅ Финальное подтверждение"),
-        ]
-        
-        all_present = True
-        for phrase, description in critical_phrases:
-            if phrase in prompt:
-                print(f"  {description}: найдено")
-            else:
-                print(f"  ❌ {description}: не найдено")
-                all_present = False
-        
-        print("\n📄 Проверка примера в промпте:")
-        
-        # Проверяем пример
-        if '"vat_amount": null' in prompt:
-            print("  ✅ В примере vat_amount установлен в null (как должно быть)")
+
+    critical_phrases = [
+        ("НЕ РАССЧИТЫВАЙ НАЛОГ САМОСТОЯТЕЛЬНО", "запрет расчёта налога"),
+        ("GST", "поддержка GST"),
+        ("total_vat", "поле total_vat"),
+        ("Не распределяй", "запрет распределения по строкам"),
+    ]
+    all_present = True
+    for phrase, description in critical_phrases:
+        if phrase in prompt:
+            print(f"  ✅ {description}")
         else:
-            print("  ❌ В примере vat_amount не null (возможно, расчетные значения)")
-        
-        if '// Если в чеке не указана сумма НДС' in prompt:
-            print("  ✅ В примере есть комментарий про отсутствие НДС")
-        else:
-            print("  ⚠️ В примере нет комментария про отсутствие НДС")
-        
-        if '// Только если эта сумма явно указана в чеке' in prompt:
-            print("  ✅ В примере есть комментарий про total_vat")
-        else:
-            print("  ⚠️ В примере нет комментария про total_vat")
-        
-        print("\n" + "=" * 50)
-        print("📋 Итоги изменений:")
-        
-        if all_present:
-            print("✅ Промпт успешно обновлен:")
-            print("   1. Добавлен явный запрет на расчет НДС")
-            print("   2. Указание считывать НДС прямо с чека")
-            print("   3. Обновлен пример с null значениями")
-            print("   4. Добавлены повторные предупреждения")
-        else:
-            print("❌ Не все необходимые изменения внесены")
-        
-        return all_present
-    else:
-        print("❌ Не удалось найти промпт в файле")
-        return False
+            print(f"  ❌ нет: {description}")
+            all_present = False
+
+    assert '"vat_amount": null' in prompt
+    assert all_present
 
 def test_vat_logic():
     """Тестирование логики обработки НДС"""
