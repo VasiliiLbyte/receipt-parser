@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """Тестирование извлечения НДС с чека (не расчета)"""
 
-import sys
-import os
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from pathlib import Path
+
 
 def test_vat_prompt_changes():
     """Тестирование изменений в промпте для НДС"""

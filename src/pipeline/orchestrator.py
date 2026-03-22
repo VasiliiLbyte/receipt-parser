@@ -6,7 +6,8 @@ This module orchestrates the processing pipeline:
 2. extract (provider-specific)
 3. normalize (field normalization)
 4. validate (business rules validation)
-5. build_result (canonical result building)
+5. pydantic_validate (schema validation via Pydantic)
+6. build_result (canonical result building)
 
 Each stage is provider-agnostic where possible.
 """
@@ -18,6 +19,7 @@ from typing import Any, Dict, Optional
 from . import normalize
 from . import validate
 from src.result_builder import ResultBuilder
+from src.schemas import validate_receipt_data, receipt_data_to_dict
 
 
 def process_receipt_pipeline(
@@ -64,7 +66,7 @@ def process_receipt_pipeline(
         print(f"❌ Ошибка на этапе нормализации: {e}")
         normalized_data = raw_provider_data  # Продолжаем с сырыми данными
     
-    # Этап 3: Validate
+    # Этап 3: Validate (business rules)
     print("✅ Этап 3: Валидация бизнес-правил...")
     try:
         validated_data, validation_warnings = validate.validate_flat_data(normalized_data)
@@ -78,6 +80,18 @@ def process_receipt_pipeline(
         print(f"❌ Ошибка на этапе валидации: {e}")
         validated_data = normalized_data
         validation_warnings = []
+    
+    # Этап 3.5: Pydantic schema validation
+    print("🔍 Этап 3.5: Валидация через Pydantic схему...")
+    try:
+        receipt_model, pydantic_warnings = validate_receipt_data(validated_data)
+        validated_data = receipt_data_to_dict(receipt_model)
+        validation_warnings.extend(pydantic_warnings)
+        print("✅ Pydantic валидация успешна")
+    except Exception as e:
+        print(f"⚠️  Pydantic валидация не пройдена: {e}")
+        validation_warnings.append(f"Pydantic validation error: {e}")
+        # Продолжаем с данными до Pydantic валидации
     
     # Optional: Pass 2 через OpenRouter
     pass2_status = "skipped"

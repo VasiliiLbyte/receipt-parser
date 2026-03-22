@@ -1,9 +1,7 @@
 #!/usr/bin/env python3
 """Тестирование поддержки формата HEIC"""
 
-import sys
 import os
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from src.vision_utils import prepare_image
 

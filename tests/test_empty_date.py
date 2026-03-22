@@ -1,10 +1,6 @@
 #!/usr/bin/env python3
 """Тестирование обработки пустой даты"""
 
-import sys
-import os
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-
 from src.openai_client import postprocess_data
 
 # Тестируем пустую строку

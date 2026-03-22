@@ -1,0 +1,26 @@
+---
+description: Receipt-parser layout, git workflow, no duplicate source files
+alwaysApply: true
+---
+
+# Core — структура и процесс
+
+## Размещение кода
+
+- Бизнес-логика и домен: `src/`. Точка входа CLI: `main.py`.
+- Тесты: `tests/` (общие фикстуры — `tests/conftest.py`).
+- Не раздувай корень репозитория новыми скриптами без необходимости.
+
+## История изменений
+
+- **Не создавай** файлы вида `*_old.py`, `*_backup.py`, `*_copy.py`, дубли модулей «на всякий случай».
+- Версии и откаты — только через **git** (ветки, коммиты, revert).
+
+## Архитектура
+
+- Явный pipeline: `src/pipeline/orchestrator.py` (extract → normalize → validate → при необходимости Pydantic → `ResultBuilder`).
+- Провайдеры API изолированы (например `src/providers/openai.py`); оркестрация не смешивается с HTTP/промптами.
+
+## Совместимость
+
+- Публичные точки входа (`main.py`, `extract_receipt_data_from_image`, формат ответа) менять осознанно; при сомнении сохраняй обратную совместимость.

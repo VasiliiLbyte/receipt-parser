@@ -105,10 +105,6 @@ def test_actual_postprocess():
     print("\n🧪 Тестирование фактической функции postprocess_data")
     print("=" * 50)
     
-    import sys
-    import os
-    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-    
     from src.openai_client import postprocess_data
     
     # Тест с полным чеком
