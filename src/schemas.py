@@ -9,9 +9,13 @@ from __future__ import annotations
 
 import re
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any, Literal, Optional
+
+from src.pipeline.normalize import normalize_currency, normalize_kpp, normalize_payment_method, normalize_unit
 
 from pydantic import BaseModel, Field, field_validator, model_validator
+
+PaymentMethod = Literal["cash", "card", "mixed"]
 
 
 class ReceiptItem(BaseModel):
@@ -25,6 +29,16 @@ class ReceiptItem(BaseModel):
         None, description="Ставка налога с чека: НДС/VAT/GST/TAX (например '20%', 'без НДС', 'no VAT')"
     )
     vat_amount: Optional[float] = Field(None, description="Сумма НДС")
+    unit: Optional[str] = Field(
+        None,
+        description="Единица измерения с чека (шт, кг, л, порц, …), только если напечатана",
+        max_length=32,
+    )
+
+    @field_validator("unit", mode="before")
+    @classmethod
+    def coerce_unit(cls, v: Any) -> Optional[str]:
+        return normalize_unit(v)
 
     @field_validator("price_per_unit", "quantity", "total_price")
     @classmethod
@@ -53,6 +67,35 @@ class ReceiptData(BaseModel):
     total_vat: Optional[float] = Field(
         None, description="Итоговый налог с чека (НДС/VAT/GST/TAX), только напечатанная сумма"
     )
+    tax_status: Optional[Literal["taxable", "tax_exempt", "unknown"]] = Field(
+        None,
+        description="Семантика налога: taxable / tax_exempt / unknown (без расчёта налога)",
+    )
+    kpp: Optional[str] = Field(None, description="КПП контрагента (10 цифр), только если на чеке")
+    payment_method: Optional[PaymentMethod] = Field(
+        None, description="Форма оплаты: cash | card | mixed"
+    )
+    currency: str = Field(
+        default="RUB",
+        description="Валюта ISO 4217; по умолчанию RUB",
+        min_length=3,
+        max_length=3,
+    )
+
+    @field_validator("kpp", mode="before")
+    @classmethod
+    def coerce_kpp(cls, v: Any) -> Optional[str]:
+        return normalize_kpp(v)
+
+    @field_validator("payment_method", mode="before")
+    @classmethod
+    def coerce_payment_method(cls, v: Any) -> Optional[PaymentMethod]:
+        return normalize_payment_method(v)
+
+    @field_validator("currency", mode="before")
+    @classmethod
+    def coerce_currency(cls, v: Any) -> str:
+        return normalize_currency(v)
 
     @field_validator("inn")
     @classmethod
@@ -111,6 +154,7 @@ def _flat_item_to_mapping(raw: Any, index: int) -> dict[str, Any]:
         "total_price": raw.get("total_price", 0.0),
         "vat_rate": raw.get("vat_rate"),
         "vat_amount": raw.get("vat_amount"),
+        "unit": raw.get("unit"),
     }
 
 
@@ -127,14 +171,21 @@ def validate_receipt_data(data: dict[str, Any]) -> tuple[ReceiptData, list[str]]
     for i, raw in enumerate(items_in):
         items.append(ReceiptItem.model_validate(_flat_item_to_mapping(raw, i)))
 
+    ts = data.get("tax_status")
+    if ts is not None and ts not in ("taxable", "tax_exempt", "unknown"):
+        ts = None
     payload = {
         "organization": data.get("organization"),
         "inn": data.get("inn"),
+        "kpp": data.get("kpp"),
         "date": data.get("date"),
         "receipt_number": data.get("receipt_number"),
         "items": items,
         "total": data.get("total"),
         "total_vat": data.get("total_vat"),
+        "tax_status": ts,
+        "payment_method": data.get("payment_method"),
+        "currency": data.get("currency"),
     }
     validated = ReceiptData.model_validate(payload)
     return validated, warnings
@@ -145,10 +196,14 @@ def receipt_data_to_dict(receipt: ReceiptData) -> dict[str, Any]:
     return {
         "organization": receipt.organization,
         "inn": receipt.inn,
+        "kpp": receipt.kpp,
         "date": receipt.date,
         "receipt_number": receipt.receipt_number,
         "total": receipt.total,
         "total_vat": receipt.total_vat,
+        "tax_status": receipt.tax_status,
+        "payment_method": receipt.payment_method,
+        "currency": receipt.currency,
         "items": [
             {
                 "name": item.name,
@@ -157,6 +212,7 @@ def receipt_data_to_dict(receipt: ReceiptData) -> dict[str, Any]:
                 "total_price": item.total_price,
                 "vat_rate": item.vat_rate,
                 "vat_amount": item.vat_amount,
+                "unit": item.unit,
             }
             for item in receipt.items
         ],

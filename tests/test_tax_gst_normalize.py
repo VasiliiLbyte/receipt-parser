@@ -125,6 +125,21 @@ def test_pydantic_total_vat_without_item_vat():
     assert model.items[0].vat_amount is None
 
 
+def test_nested_tax_dict_maps_to_total_vat():
+    raw = {
+        "organization": "R",
+        "date": "2026-01-01",
+        "receipt_number": "1",
+        "items": [
+            {"name": "A", "price_per_unit": 1.0, "quantity": 1.0, "total_price": 1.0},
+        ],
+        "total": 2.0,
+        "tax": {"gst": "301,15"},
+    }
+    out = normalize_flat_data(raw)
+    assert out["total_vat"] == 301.15
+
+
 def test_merge_alternate_total_tax_respects_zero():
     result = {"total_vat": 0.0, "total_gst": 50.0}
     merge_alternate_total_tax(result)

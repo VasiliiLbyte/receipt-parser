@@ -46,7 +46,11 @@ def test_result_builder_mapping():
     )
 
     assert canonical["meta"]["schema_version"] == CANONICAL_SCHEMA_VERSION
+    assert canonical["meta"]["tax_status"] == "unknown"
     assert canonical["receipt"]["receipt_number"] == "123456"
+    assert canonical["receipt"]["currency"] == "RUB"
+    assert canonical["receipt"]["payment_method"] is None
+    assert canonical["merchant"].get("kpp") is None
     assert canonical["receipt"]["date"] == "2026-02-19"
     assert canonical["merchant"]["organization"] == "ИП ТЕСТ ТЕСТОВИЧ"
     assert canonical["merchant"]["inn"] == "781603445844"

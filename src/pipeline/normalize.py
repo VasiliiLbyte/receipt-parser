@@ -7,7 +7,110 @@ They should not contain any provider-specific logic or I/O operations.
 
 import re
 import datetime
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Literal, Optional
+
+PaymentMethod = Literal["cash", "card", "mixed"]
+
+_UNIT_ALIASES: Dict[str, str] = {
+    "шт": "шт",
+    "штук": "шт",
+    "штуки": "шт",
+    "кг": "кг",
+    "г": "г",
+    "л": "л",
+    "литр": "л",
+    "литра": "л",
+    "литров": "л",
+    "мл": "мл",
+    "порц": "порц",
+    "порция": "порц",
+    "порций": "порц",
+    "упак": "упак",
+    "уп": "упак",
+    "упаковка": "упак",
+    "компл": "компл",
+    "комплект": "компл",
+}
+
+
+def normalize_kpp(kpp: Any) -> Optional[str]:
+    """КПП: ровно 10 цифр или None (OCR-замены как у ИНН)."""
+    if not kpp:
+        return None
+    raw = str(kpp)
+    ocr_map = {
+        "О": "0",
+        "о": "0",
+        "O": "0",
+        "o": "0",
+        "З": "3",
+        "з": "3",
+        "l": "1",
+        "I": "1",
+        "i": "1",
+        "В": "8",
+        "в": "8",
+        "B": "8",
+        "b": "8",
+        "S": "5",
+        "s": "5",
+    }
+    for char, digit in ocr_map.items():
+        raw = raw.replace(char, digit)
+    clean = re.sub(r"\D", "", raw)
+    if len(clean) == 10:
+        return clean
+    return None
+
+
+def normalize_payment_method(value: Any) -> Optional[PaymentMethod]:
+    """
+    Форма оплаты: cash | card | mixed | None.
+    Только по явному тексту на чеке, без угадывания.
+    """
+    if value is None:
+        return None
+    s = str(value).strip().lower()
+    if not s:
+        return None
+    if re.search(r"смешанн|часть\s+нал|наличн.*карт|карт.*наличн|split\s+pay|mixed\s+pay", s):
+        return "mixed"
+    if re.search(
+        r"безнал|без\s*наличн|карт(ой|а)?\b|card\b|эквайринг|"
+        r"non-?cash|электронн|по\s+карте|оплат[аы]\s+карт",
+        s,
+    ):
+        return "card"
+    if re.search(r"наличн|cash\b", s):
+        return "cash"
+    return None
+
+
+def normalize_currency(value: Any) -> str:
+    """Валюта ISO 4217; пусто → RUB."""
+    if value is None:
+        return "RUB"
+    s = str(value).strip().upper()
+    if not s:
+        return "RUB"
+    if s in ("RUR", "₽", "РУБ.", "РУБ"):
+        return "RUB"
+    if re.fullmatch(r"[A-Z]{3}", s):
+        return s
+    low = str(value).strip().lower()
+    if re.search(r"руб|₽|rub", low):
+        return "RUB"
+    return "RUB"
+
+
+def normalize_unit(value: Any) -> Optional[str]:
+    """Единица измерения: нижний регистр, без точки в конце; без выдумывания."""
+    if value is None:
+        return None
+    s = str(value).strip().lower().rstrip(".")
+    if not s:
+        return None
+    return _UNIT_ALIASES.get(s, s)
 
 
 def normalize_inn(inn: Any) -> Optional[str]:
@@ -361,18 +464,40 @@ def merge_alternate_total_tax(result: Dict[str, Any]) -> None:
         "total_tax",
         "tax_total",
         "vat_total",
-        "gst",
+        "vat_amount_total",
+        "gst_amount_total",
+        "summary_vat",
+        "summary_gst",
+        "included_vat",
+        "vat_included",
+        "total_vat_amount",
+        # верхний уровень «tax» часто = сумма; «gst» без префикса может быть «GST 1» (стол) — не берём
         "tax",
     ):
         if key not in result:
             continue
         raw = result[key]
+        if isinstance(raw, (dict, list)):
+            continue
         if raw is None or raw == "":
             continue
         parsed = normalize_number(raw)
         if parsed is not None:
             result["total_vat"] = parsed
             return
+
+    tax_obj = result.get("tax")
+    if isinstance(tax_obj, dict):
+        for nk in ("total_vat", "vat", "gst", "amount", "vat_amount", "total", "value"):
+            if nk not in tax_obj:
+                continue
+            raw = tax_obj[nk]
+            if raw is None or raw == "":
+                continue
+            parsed = normalize_number(raw)
+            if parsed is not None:
+                result["total_vat"] = parsed
+                return
 
 
 def normalize_item_numbers(item: Dict[str, Any]) -> Dict[str, Any]:
@@ -412,7 +537,13 @@ def normalize_flat_data(data: Dict[str, Any]) -> Dict[str, Any]:
     # Нормализация полей верхнего уровня
     if "inn" in result:
         result["inn"] = normalize_inn(result["inn"])
-    
+
+    if "kpp" in result:
+        result["kpp"] = normalize_kpp(result["kpp"])
+
+    result["payment_method"] = normalize_payment_method(result.get("payment_method"))
+    result["currency"] = normalize_currency(result.get("currency"))
+
     if "date" in result:
         result["date"] = normalize_date(result["date"])
     
@@ -438,6 +569,7 @@ def normalize_flat_data(data: Dict[str, Any]) -> Dict[str, Any]:
 
             apply_item_tax_aliases(normalized_item)
             normalized_item = normalize_item_numbers(normalized_item)
+            normalized_item["unit"] = normalize_unit(normalized_item.get("unit"))
             normalized_items.append(normalized_item)
 
         result["items"] = normalized_items

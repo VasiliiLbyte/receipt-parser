@@ -25,6 +25,7 @@ from .quality_gates import (
     is_degraded,
     should_run_fallback,
 )
+from .tax_status import enrich_flat_tax_status
 from src.config import (
     ENABLE_FALLBACK,
     ENABLE_QUALITY_GATES,
@@ -97,7 +98,9 @@ def process_receipt_pipeline(
         print(f"❌ Ошибка на этапе валидации: {e}")
         validated_data = normalized_data
         validation_warnings = []
-    
+
+    enrich_flat_tax_status(validated_data, raw=raw_provider_data)
+
     # Этап 3.5: Pydantic schema validation
     print("🔍 Этап 3.5: Валидация через Pydantic схему...")
     try:
@@ -140,7 +143,9 @@ def process_receipt_pipeline(
         except Exception as e:
             print(f"⚠️  Ошибка OpenRouter верификации: {e}")
             pass2_status = "error"
-    
+
+    enrich_flat_tax_status(validated_data, raw=raw_pass1)
+
     # Этап 4: Build canonical result
     print("🏗️  Этап 4: Сборка канонического результата...")
     try:
@@ -188,7 +193,9 @@ def _ingest_raw_to_pass(
     flat: Dict[str, Any] = {}
 
     if not raw:
-        q = evaluate_quality(flat, schema_valid=False, schema_error="extraction_empty")
+        q = evaluate_quality(
+            flat, schema_valid=False, schema_error="extraction_empty", raw_provider=None
+        )
         return PassData(
             label=label,
             provider=provider,
@@ -214,6 +221,8 @@ def _ingest_raw_to_pass(
         print(f"⚠️  Бизнес-валидация ({label}): {e}")
         validated_data = normalized
 
+    enrich_flat_tax_status(validated_data, raw=raw)
+
     try:
         receipt_model, pydantic_warnings = validate_receipt_data(validated_data)
         flat = receipt_data_to_dict(receipt_model)
@@ -226,7 +235,9 @@ def _ingest_raw_to_pass(
         validation_warnings.append(f"Pydantic validation error: {e}")
         print(f"⚠️  [{label}] Pydantic: {e}")
 
-    quality = evaluate_quality(flat, schema_valid=schema_valid, schema_error=schema_error)
+    quality = evaluate_quality(
+        flat, schema_valid=schema_valid, schema_error=schema_error, raw_provider=raw
+    )
     return PassData(
         label=label,
         provider=provider,
@@ -378,6 +389,8 @@ def process_receipt_pipeline_variant_c(image_path: str) -> Optional[Dict[str, An
 
     warnings_list = [{"message": w, "level": "warning"} for w in validation_warnings]
     proc_status = "degraded" if degraded else "ok"
+
+    enrich_flat_tax_status(flat_work, raw=chosen.raw)
 
     pipeline_trace = {
         "variant": "c",

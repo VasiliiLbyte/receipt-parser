@@ -44,7 +44,19 @@ def save_to_excel(results, filename="receipts.xlsx"):
     ws_summary = wb.active
     ws_summary.title = "Сводка"
 
-    summary_headers = ["№", "Номер чека", "Организация", "ИНН", "Дата", "Общая сумма", "НДС всего"]
+    summary_headers = [
+        "№",
+        "Номер чека",
+        "Организация",
+        "ИНН",
+        "КПП",
+        "Дата",
+        "Форма оплаты",
+        "Валюта",
+        "Общая сумма",
+        "НДС всего",
+        "Статус налога",
+    ]
     ws_summary.append(summary_headers)
 
     header_font = Font(bold=True)
@@ -60,22 +72,31 @@ def save_to_excel(results, filename="receipts.xlsx"):
         merchant = r.get("merchant", {}) or {}
         totals = r.get("totals", {}) or {}
         taxes = r.get("taxes", {}) or {}
+        meta = r.get("meta", {}) or {}
 
         receipt_number = receipt.get("receipt_number", "")
         organization = merchant.get("organization", "")
         inn = merchant.get("inn", "")
+        kpp = merchant.get("kpp", "")
         date = receipt.get("date", "")
+        payment_method = receipt.get("payment_method", "")
+        currency = receipt.get("currency", "") or "RUB"
         total = totals.get("total", "")
         total_vat = taxes.get("total_vat", "")
+        tax_status = meta.get("tax_status", "")
 
         row = [
             idx,
             receipt_number,
             organization,
             inn,
+            kpp,
             date,
+            payment_method,
+            currency,
             total,
             total_vat,
+            tax_status,
         ]
         ws_summary.append(row)
 
@@ -84,9 +105,20 @@ def save_to_excel(results, filename="receipts.xlsx"):
     # --- Лист 2: Товары (детализация) ---
     ws_items = wb.create_sheet("Товары")
 
-    items_headers = ["№", "Номер чека", "Организация", "ИНН", "Дата",
-                     "Наименование товара", "Цена за ед.", "Кол-во",
-                     "Стоимость", "Ставка НДС", "Сумма НДС"]
+    items_headers = [
+        "№",
+        "Номер чека",
+        "Организация",
+        "ИНН",
+        "Дата",
+        "Наименование товара",
+        "Ед. изм.",
+        "Цена за ед.",
+        "Кол-во",
+        "Стоимость",
+        "Ставка НДС",
+        "Сумма НДС",
+    ]
     ws_items.append(items_headers)
 
     for col, header in enumerate(items_headers, 1):
@@ -105,7 +137,9 @@ def save_to_excel(results, filename="receipts.xlsx"):
         date = receipt.get("date", "") or ""
         receipt_number = receipt.get("receipt_number", "") or ""
         if not items:
-            ws_items.append([idx, receipt_number, organization, inn, date, "Нет данных", "", "", "", "", ""])
+            ws_items.append(
+                [idx, receipt_number, organization, inn, date, "Нет данных", "", "", "", "", "", ""]
+            )
         else:
             for item in items:
                 row = [
@@ -115,11 +149,12 @@ def save_to_excel(results, filename="receipts.xlsx"):
                     inn,
                     date,
                     item.get("name", ""),
+                    item.get("unit", ""),
                     item.get("price_per_unit", ""),
                     item.get("quantity", ""),
                     item.get("total_price", ""),
                     item.get("vat_rate", ""),
-                    item.get("vat_amount", "")
+                    item.get("vat_amount", ""),
                 ]
                 ws_items.append(row)
 
@@ -170,9 +205,13 @@ def main():
         print(f"\n📄 --- Чек {i} (Номер на чеке: {receipt_number}) ---")
         print(f"Организация: {merchant.get('organization')}")
         print(f"ИНН: {merchant.get('inn')}")
+        print(f"КПП: {merchant.get('kpp')}")
         print(f"Дата: {receipt.get('date')}")
+        print(f"Оплата: {receipt.get('payment_method')}")
+        print(f"Валюта: {receipt.get('currency') or 'RUB'}")
         print(f"Всего: {totals.get('total')} руб.")
         print(f"НДС всего: {taxes.get('total_vat')} руб.")
+        print(f"Статус налога: {r.get('meta', {}).get('tax_status')}")
         print("Товары:")
         for item in r.get('items', []):
             name = item.get('name', '')

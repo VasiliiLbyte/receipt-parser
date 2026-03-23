@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from src.pipeline.receipt_number_finalize import finalize_receipt_number_with_status
+from src.pipeline.normalize import normalize_currency
 
 
 CANONICAL_SCHEMA_VERSION = "1.0"
@@ -56,6 +56,7 @@ class ResultBuilder:
                     "total_price": item.get("total_price"),
                     "vat_rate": item.get("vat_rate"),
                     "vat_amount": item.get("vat_amount"),
+                    "unit": item.get("unit"),
                 }
             )
 
@@ -71,19 +72,29 @@ class ResultBuilder:
         if pipeline_trace:
             meta["pipeline_trace"] = pipeline_trace
 
+        from src.pipeline.receipt_number_finalize import finalize_receipt_number_with_status
+
         receipt_num_final, receipt_num_status = finalize_receipt_number_with_status(
             flat.get("receipt_number")
         )
         meta["receipt_number_status"] = receipt_num_status
 
+        ts = flat.get("tax_status")
+        if ts not in ("taxable", "tax_exempt", "unknown"):
+            ts = "unknown"
+        meta["tax_status"] = ts
+
         canonical = {
             "receipt": {
                 "receipt_number": receipt_num_final,
                 "date": flat.get("date"),
+                "payment_method": flat.get("payment_method"),
+                "currency": normalize_currency(flat.get("currency")),
             },
             "merchant": {
                 "organization": flat.get("organization"),
                 "inn": flat.get("inn"),
+                "kpp": flat.get("kpp"),
             },
             "items": items,
             "totals": {

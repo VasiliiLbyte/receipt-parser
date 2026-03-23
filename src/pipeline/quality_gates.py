@@ -10,6 +10,8 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
+from src.pipeline.tax_status import raw_suggests_tax_amount_omitted
+
 # Допуск суммы позиций к total (руб. или доля от total)
 ITEMS_TOTAL_ABS_TOLERANCE = 1.0
 ITEMS_TOTAL_REL_TOLERANCE = 0.02
@@ -37,6 +39,7 @@ class QualityReport:
     items_total_matches: bool
     no_disallowed_negatives: bool
     ocr_junk_detected: bool
+    tax_summary_ok: bool = True
     issues: list[str] = field(default_factory=list)
 
     def passed_quality_gates(self) -> bool:
@@ -53,6 +56,7 @@ class QualityReport:
             and self.items_total_matches
             and self.no_disallowed_negatives
             and not self.ocr_junk_detected
+            and self.tax_summary_ok
             and self.score >= QUALITY_GATE_MIN_SCORE
         )
 
@@ -70,6 +74,7 @@ class QualityReport:
             "items_total_matches": self.items_total_matches,
             "no_disallowed_negatives": self.no_disallowed_negatives,
             "ocr_junk_detected": self.ocr_junk_detected,
+            "tax_summary_ok": self.tax_summary_ok,
             "issues_count": len(self.issues),
         }
 
@@ -128,8 +133,13 @@ def evaluate_quality(
     *,
     schema_valid: bool,
     schema_error: str | None = None,
+    raw_provider: dict[str, Any] | None = None,
 ) -> QualityReport:
-    """Строит QualityReport и числовой score (0–100)."""
+    """Строит QualityReport и числовой score (0–100).
+
+    Отсутствие КПП и формы оплаты не ухудшает качество. Валюта в нормализации
+    по умолчанию RUB — не ошибка.
+    """
     issues: list[str] = []
     org = flat.get("organization")
     has_organization = bool(org and str(org).strip())
@@ -222,6 +232,10 @@ def evaluate_quality(
     if not schema_valid and schema_error:
         issues.append(f"schema: {schema_error[:120]}")
 
+    tax_summary_ok = not raw_suggests_tax_amount_omitted(flat, raw_provider)
+    if not tax_summary_ok:
+        issues.append("в сыром JSON есть итоговый налог (VAT/GST/НДС+сумма), а total_vat пуст — возможен пропуск")
+
     # Score: веса по важности
     w = 0
     if schema_valid:
@@ -263,6 +277,7 @@ def evaluate_quality(
         items_total_matches=items_total_matches,
         no_disallowed_negatives=no_disallowed_negatives,
         ocr_junk_detected=ocr_junk,
+        tax_summary_ok=tax_summary_ok,
         issues=issues,
     )
 
