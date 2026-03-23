@@ -163,6 +163,10 @@ async def _handle_export(callback: CallbackQuery, fmt: str, filename: str) -> No
 
     doc = BufferedInputFile(file_bytes, filename=filename)
     await callback.message.answer_document(doc)  # type: ignore[union-attr]
+    try:
+        await callback.message.edit_reply_markup(reply_markup=None)  # type: ignore[union-attr]
+    except Exception:
+        pass  # сообщение могло быть удалено или слишком старое
 
 
 @router.callback_query(F.data == "help")

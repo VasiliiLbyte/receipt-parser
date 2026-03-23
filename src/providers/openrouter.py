@@ -44,6 +44,35 @@ def _is_region_blocked_openai(response: requests.Response) -> bool:
         return "unsupported_country_region_territory" in response.text
 
 
+def _is_region_or_location_blocked(response: requests.Response) -> bool:
+    if response.status_code not in (400, 403):
+        return False
+
+    if _is_region_blocked_openai(response):
+        return True
+
+    try:
+        data = response.json()
+        metadata = data.get("error", {}).get("metadata", {})
+        raw = (metadata.get("raw", "") or "").lower()
+        provider_name = (metadata.get("provider_name", "") or "").lower()
+        return (
+            "user location is not supported for the api use" in raw
+            or "failed_precondition" in raw
+            or (
+                provider_name == "google ai studio"
+                and "location is not supported" in raw
+            )
+        )
+    except Exception:
+        text = response.text.lower()
+        return (
+            "user location is not supported for the api use" in text
+            or "failed_precondition" in text
+            or "unsupported_country_region_territory" in text
+        )
+
+
 EXTRACT_PROMPT = """
 Ты — эксперт по извлечению данных из фотографий кассовых чеков. Твоя задача — максимально точно и дословно распознать все поля чека и вернуть их в строгом JSON-формате.
 
@@ -84,15 +113,23 @@ EXTRACT_PROMPT = """
    - Сохраняй дефисы и буквы внутри номера (например «А-00123», «ФД-456789»).
    - Типичные OCR-путаницы: «О»↔«0», «l»↔«1», «З»↔«3», «В»↔«8».
    - Если номер нечитаем или отсутствует — верни null.
-4. **Для каждой позиции товара** укажи:
+4. **ПРАВИЛА распознавания строк чека (перед заполнением `items`)**:
+   - Строки со словами `VAT`, `НДС`, `TAX`, `вкл.НДС`, `incl.VAT`, `Налог` — это НЕ товары.
+   - Такие строки клади ТОЛЬКО в `total_vat` (число, без текста и знака валюты).
+   - Если таких строк несколько (например, НДС 10% и НДС 20%) — суммируй все в `total_vat`.
+   - Строки `TOTAL`, `ИТОГО`, `Итого к оплате`, `Сумма` — это `total`, не товар.
+   - Строки `Чаевые`, `Tips`, `Service charge` — не включай в `items`, игнорируй.
+   - В `items` включай ТОЛЬКО реальные товары и услуги.
+   - Если не уверен — лучше не включать строку в `items`, чем включить лишнее.
+5. **Для каждой позиции товара** укажи:
    - `name`: точное наименование (БУКВАЛЬНАЯ КОПИЯ!),
    - `price_per_unit`: цена за единицу (число),
    - `quantity`: количество (число),
    - `total_price`: общая стоимость (число),
    - `vat_rate`: ставка НДС (например, "20%", "5%", "без НДС", "0%"),
    - `vat_amount`: сумма НДС для этой позиции (число, если нет — null).
-5. **Общая сумма чека** (`total`) и **общий НДС** (`total_vat`) — числа.
-6. Если каких-то данных нет — ставь `null`.
+6. **Общая сумма чека** (`total`) и **общий НДС** (`total_vat`) — числа.
+7. Если каких-то данных нет — ставь `null`.
 
 ### ⚠️ ПРИМЕРЫ КАК НЕ НАДО ДЕЛАТЬ (ТИПИЧНЫЕ ОШИБКИ):
 - ❌ НЕПРАВИЛЬНО: "Патрубок топливный прямой Совиньонный Сенсата D10"
@@ -218,8 +255,8 @@ def extract_via_openrouter(image_path: str, **kwargs) -> dict | None:
                     time.sleep(wait)
                     continue
 
-                if _is_region_blocked_openai(response):
-                    print("⚠️ Модель OpenAI недоступна по региону, переключаемся на fallback-модель...")
+                if _is_region_or_location_blocked(response):
+                    print("⚠️ Провайдер/модель недоступны по региону или локации, переключаемся на fallback-модель...")
                     break
 
                 print(f"❌ Ошибка API: {response.status_code}")
