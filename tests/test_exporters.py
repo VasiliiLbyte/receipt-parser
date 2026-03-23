@@ -92,3 +92,29 @@ def test_csv_1c_empty_items_creates_fallback_row(sample_receipt_result):
     text = build_csv_1c_bytes([sample_receipt_result]).decode("utf-8-sig")
 
     assert "Нет данных" in text
+
+
+def test_excel_1c_skips_items_without_name(tmp_path, sample_receipt_result):
+    sample_receipt_result["items"] = [
+        {"name": "Товар 1", "quantity": 1, "price_per_unit": 100, "total_price": 100},
+        {"name": "", "quantity": None, "price_per_unit": None, "total_price": None, "vat_rate": "20%", "vat_amount": 20},
+        {"name": "   ", "quantity": None, "price_per_unit": None, "total_price": None, "vat_rate": "10%", "vat_amount": 10},
+    ]
+    out_path = tmp_path / "out_skip_empty_names.xlsx"
+    build_excel_1c([sample_receipt_result], str(out_path))
+
+    wb = load_workbook(out_path)
+    ws_import = wb["1C_Импорт"]
+    assert ws_import.max_row == 2
+    assert ws_import["F2"].value == "Товар 1"
+
+
+def test_csv_1c_skips_items_without_name(sample_receipt_result):
+    sample_receipt_result["items"] = [
+        {"name": "Товар 1", "quantity": 1, "price_per_unit": 100, "total_price": 100},
+        {"name": "", "quantity": None, "price_per_unit": None, "total_price": None, "vat_rate": "20%", "vat_amount": 20},
+    ]
+    text = build_csv_1c_bytes([sample_receipt_result]).decode("utf-8-sig")
+    lines = text.splitlines()
+    assert len(lines) == 2
+    assert "Товар 1" in lines[1]

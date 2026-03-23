@@ -108,6 +108,11 @@ def _is_ready_for_export(doc_date, seller: str, items: list[dict]) -> bool:
     return bool(doc_date and seller and items)
 
 
+def _is_exportable_item(item: dict) -> bool:
+    name = str(item.get("name") or "").strip()
+    return bool(name)
+
+
 def build_excel_1c(results: list[dict], filename: str = "receipts_1c.xlsx") -> str:
     """
     Формирует Excel-файл в формате для импорта в 1С.
@@ -143,6 +148,7 @@ def build_excel_1c(results: list[dict], filename: str = "receipts_1c.xlsx") -> s
         receipt = r.get("receipt", {}) or {}
         merchant = r.get("merchant", {}) or {}
         items = r.get("items", []) or []
+        export_items = [item for item in items if isinstance(item, dict) and _is_exportable_item(item)]
         totals = r.get("totals", {}) or {}
         taxes = r.get("taxes", {}) or {}
 
@@ -159,7 +165,7 @@ def build_excel_1c(results: list[dict], filename: str = "receipts_1c.xlsx") -> s
 
         status = (
             "Готово к выгрузке"
-            if _is_ready_for_export(doc_date, seller, items)
+            if _is_ready_for_export(doc_date, seller, export_items)
             else "Проверить вручную"
         )
 
@@ -173,7 +179,7 @@ def build_excel_1c(results: list[dict], filename: str = "receipts_1c.xlsx") -> s
             inn,
             total_sum,
             total_vat,
-            len(items),
+            len(export_items),
             status,
         ]
 
@@ -188,7 +194,7 @@ def build_excel_1c(results: list[dict], filename: str = "receipts_1c.xlsx") -> s
 
         check_row += 1
 
-        if not items:
+        if not export_items:
             ws_import.append(
                 [
                     doc_date if doc_date else doc_date_str,
@@ -208,7 +214,7 @@ def build_excel_1c(results: list[dict], filename: str = "receipts_1c.xlsx") -> s
             )
             continue
 
-        for item in items:
+        for item in export_items:
             ws_import.append(
                 [
                     doc_date if doc_date else doc_date_str,

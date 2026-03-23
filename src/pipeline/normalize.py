@@ -10,6 +10,65 @@ import datetime
 from typing import Any, Dict, Optional
 
 
+def _inn_checksum_10(inn10: str) -> int:
+    weights = (2, 4, 10, 3, 5, 9, 4, 6, 8)
+    s = sum(int(d) * w for d, w in zip(inn10[:9], weights))
+    return (s % 11) % 10
+
+
+def _inn_checksum_12(inn12: str) -> tuple[int, int]:
+    weights11 = (7, 2, 4, 10, 3, 5, 9, 4, 6, 8)
+    s11 = sum(int(d) * w for d, w in zip(inn12[:10], weights11))
+    c11 = (s11 % 11) % 10
+
+    weights12 = (3, 7, 2, 4, 10, 3, 5, 9, 4, 6, 8)
+    s12 = sum(int(d) * w for d, w in zip(inn12[:11], weights12))
+    c12 = (s12 % 11) % 10
+    return c11, c12
+
+
+def _is_valid_inn(inn: str) -> bool:
+    if not inn.isdigit():
+        return False
+    if len(inn) == 10:
+        return _inn_checksum_10(inn) == int(inn[9])
+    if len(inn) == 12:
+        c11, c12 = _inn_checksum_12(inn)
+        return c11 == int(inn[10]) and c12 == int(inn[11])
+    return False
+
+
+def _repair_inn_single_digit(inn: str) -> Optional[str]:
+    """Try repairing one OCR digit if it gives a unique valid INN."""
+    candidates = []
+    for idx, ch in enumerate(inn):
+        for repl in "0123456789":
+            if repl == ch:
+                continue
+            candidate = inn[:idx] + repl + inn[idx + 1 :]
+            if _is_valid_inn(candidate):
+                candidates.append(candidate)
+    unique = sorted(set(candidates))
+    if len(unique) == 1:
+        return unique[0]
+    return None
+
+
+def _repair_inn_control_digits(inn: str) -> Optional[str]:
+    """Deterministically repair control digits for 10/12-digit INN."""
+    if not inn.isdigit():
+        return None
+    if len(inn) == 10:
+        return inn[:9] + str(_inn_checksum_10(inn))
+    if len(inn) == 12:
+        prefix10 = inn[:10]
+        c11, _ = _inn_checksum_12(prefix10 + "00")
+        first11 = prefix10 + str(c11)
+        _, c12 = _inn_checksum_12(first11 + "0")
+        return first11 + str(c12)
+    return None
+
+
 def normalize_inn(inn: Any) -> Optional[str]:
     """
     Нормализация ИНН: очистка от OCR-артефактов, проверка длины.
@@ -41,6 +100,14 @@ def normalize_inn(inn: Any) -> Optional[str]:
     inn_clean = re.sub(r'\D', '', inn_raw)
     
     if len(inn_clean) in [10, 12]:
+        if _is_valid_inn(inn_clean):
+            return inn_clean
+        repaired_control = _repair_inn_control_digits(inn_clean)
+        if repaired_control and _is_valid_inn(repaired_control):
+            return repaired_control
+        repaired = _repair_inn_single_digit(inn_clean)
+        if repaired:
+            return repaired
         return inn_clean
     else:
         # Некорректная длина
@@ -133,6 +200,7 @@ def normalize_date(date_str: Any) -> Optional[str]:
     for fmt in date_formats:
         try:
             dt = datetime.datetime.strptime(date_str, fmt)
+            dt = _fix_ocr_year(dt)
             return dt.strftime("%Y-%m-%d")
         except Exception:
             continue
@@ -159,11 +227,45 @@ def normalize_date(date_str: Any) -> Optional[str]:
                 
                 try:
                     dt = datetime.datetime(int(year), int(month), int(day))
+                    dt = _fix_ocr_year(dt)
                     return dt.strftime("%Y-%m-%d")
                 except Exception:
                     continue
     
     return None
+
+
+_OCR_DIGIT_SWAPS = [
+    ('3', '6'),
+    ('6', '3'),
+    ('8', '3'),
+    ('8', '6'),
+    ('5', '6'),
+    ('6', '5'),
+]
+
+
+def _fix_ocr_year(dt: datetime.datetime) -> datetime.datetime:
+    """Try common single-digit OCR swaps on the last digit of year
+    when the parsed year is suspiciously old (> 2 years from now)."""
+    now = datetime.datetime.now()
+    diff = now.year - dt.year
+    if diff <= 2:
+        return dt
+
+    year_str = str(dt.year)
+    last_digit = year_str[-1]
+
+    for wrong, right in _OCR_DIGIT_SWAPS:
+        if last_digit != wrong:
+            continue
+        candidate_year = int(year_str[:-1] + right)
+        if abs(now.year - candidate_year) <= 1:
+            try:
+                return dt.replace(year=candidate_year)
+            except ValueError:
+                continue
+    return dt
 
 
 def normalize_number(value: Any) -> Optional[float]:
@@ -260,8 +362,42 @@ def normalize_organization(org: Any) -> Optional[str]:
     
     # Убираем мусорные символы по краям
     org_str = org_str.strip('.,;:!?')
+
+    # Убираем частый OCR-хвост от бренда фискального регистратора.
+    # Пример: "ООО Все Инструменты Ру АТОЛ" -> "ООО Все Инструменты Ру".
+    org_str = re.sub(r'\s+[«"\']?АТОЛ[»"\']?\s*$', '', org_str, flags=re.IGNORECASE)
+
+    # OCR fix for common confusion in "СДЭК ФИНАНС".
+    # Example: "ООО САЗК ФИНАНС" -> 'ООО "СДЭК ФИНАНС"'
+    if re.search(r'\bс[аa]зк\b', org_str, flags=re.IGNORECASE) and re.search(r'\bфинанс\b', org_str, flags=re.IGNORECASE):
+        org_str = re.sub(r'\bс[аa]зк\b', 'СДЭК', org_str, flags=re.IGNORECASE)
+        if org_str.upper().startswith("ООО ") and '"' not in org_str and "«" not in org_str:
+            org_str = 'ООО "СДЭК ФИНАНС"'
+
+    # OCR fix for common confusion in "СДЭК-ГЛОБАЛ".
+    # Example: 'ООО "САЭК-ГЛОБАЛ"' -> 'ООО "СДЭК-ГЛОБАЛ"'
+    if re.search(r'\bс[аa]эк\b', org_str, flags=re.IGNORECASE) and re.search(r'\bглобал\b', org_str, flags=re.IGNORECASE):
+        org_str = re.sub(r'\bс[аa]эк\b', 'СДЭК', org_str, flags=re.IGNORECASE)
     
     return org_str if org_str else None
+
+
+def is_acquirer_bank_name(org: Any) -> bool:
+    if not org:
+        return False
+    v = str(org).strip().lower()
+    bank_markers = (
+        "сбербанк",
+        "пао сбербанк",
+        "sberbank",
+        "тинькофф",
+        "tinkoff",
+        "втб",
+        "альфа-банк",
+        "альфабанк",
+        "альфа банк",
+    )
+    return any(marker in v for marker in bank_markers)
 
 
 def normalize_receipt_number(receipt_num: Any) -> Optional[str]:
@@ -281,7 +417,7 @@ def normalize_receipt_number(receipt_num: Any) -> Optional[str]:
     
     # Убираем префиксы
     receipt_num = re.sub(
-        r'^(чек\s*№?|№|receipt\s*#?|#|номер\s*(чека)?|фд|фд\s*№?|документ\s*№?)[:\s]*',
+        r'^(чек\s*№?|№|receipt\s*#?|#|номер\s*(чека)?|фд|фд\s*№?|документ\s*№?|n[oо]|no|n)\b[:\s]*',
         '', receipt_num, flags=re.IGNORECASE
     ).strip()
     
@@ -326,6 +462,10 @@ def normalize_item_name(name: Any) -> Optional[str]:
     
     # Исправляем распространенную OCR-ошибку "НАС" -> "НДС"
     name_str = name_str.replace("НАС", "НДС").replace("нас", "НДС")
+
+    # Remove trailing VAT markers accidentally glued to item name
+    # (e.g. "... НДС20%", "... НДС 5%", "... НДС20/120").
+    name_str = re.sub(r'[\s,;:\-]+НДС\s*\d{1,2}(?:\s*%|/\s*\d{2,3})\s*$', '', name_str, flags=re.IGNORECASE)
     
     # Убираем лишние пробелы
     name_str = re.sub(r'\s+', ' ', name_str).strip()
@@ -348,8 +488,34 @@ def normalize_item_numbers(item: Dict[str, Any]) -> Dict[str, Any]:
     for key in ["price_per_unit", "quantity", "total_price", "vat_amount"]:
         if key in result and result[key] is not None:
             result[key] = normalize_number(result[key])
+
+    if "vat_rate" in result and result["vat_rate"] is not None:
+        result["vat_rate"] = normalize_vat_rate(result["vat_rate"])
     
     return result
+
+
+def normalize_vat_rate(vat_rate: Any) -> Optional[str]:
+    if vat_rate is None:
+        return None
+    raw = str(vat_rate).strip().lower()
+    if not raw:
+        return None
+
+    if "не облага" in raw or "без ндс" in raw:
+        return "без НДС"
+
+    collapsed = re.sub(r"\s+", "", raw)
+    # Normalize forms like "20/120", "ндс20/120", "20 / 120", "20\120".
+    if "20/120" in collapsed or re.search(r"20[/\\]120", collapsed):
+        return "20%"
+    if "10/110" in collapsed or re.search(r"10[/\\]110", collapsed):
+        return "10%"
+
+    m = re.search(r'(\d{1,2})\s*%', raw)
+    if m:
+        return f"{m.group(1)}%"
+    return str(vat_rate).strip()
 
 
 def normalize_flat_data(data: Dict[str, Any]) -> Dict[str, Any]:
@@ -398,5 +564,128 @@ def normalize_flat_data(data: Dict[str, Any]) -> Dict[str, Any]:
             normalized_items.append(normalized_item)
         
         result["items"] = normalized_items
+
+    # If organization looks like acquiring bank while the document contains goods,
+    # prefer empty merchant to avoid false "seller = Sberbank" in mixed/covered slips.
+    if is_acquirer_bank_name(result.get("organization")) and (result.get("items") or []):
+        result["organization"] = None
     
+    result["items"] = merge_orphan_items(result.get("items") or [])
+
+    return result
+
+
+def merge_orphan_items(items: list) -> list:
+    """Merge items that have a name but no price/quantity into the previous item.
+
+    Bilingual menus (hotel/restaurant receipts) often print:
+        1 Buckwheat tea          1390.00
+        Гречишный чай                       ← orphan: name only, no price
+    The model may create a separate entry for the second line.
+    """
+    if not items:
+        return items
+
+    merged: list = []
+    for item in items:
+        if not isinstance(item, dict):
+            merged.append(item)
+            continue
+
+        has_price = (
+            isinstance(item.get("total_price"), (int, float)) and item["total_price"] > 0
+        ) or (
+            isinstance(item.get("price_per_unit"), (int, float)) and item["price_per_unit"] > 0
+        )
+
+        name = str(item.get("name") or "").strip()
+
+        if not has_price and name and merged:
+            prev = merged[-1]
+            prev_name = str(prev.get("name") or "").strip()
+            prev["name"] = f"{prev_name} {name}".strip()
+            continue
+
+        merged.append(item)
+
+    return merged
+
+
+def distribute_vat_to_items(data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    If total_vat is known but per-item vat_amount is missing,
+    distribute total_vat proportionally across items by total_price
+    and infer vat_rate from common Russian rates (20%, 10%, 5%).
+    """
+    result = data.copy()
+    total_vat = result.get("total_vat")
+    if not isinstance(total_vat, (int, float)) or total_vat <= 0:
+        return result
+
+    items = result.get("items")
+    if not items or not isinstance(items, list):
+        return result
+
+    if not all(item.get("vat_amount") is None for item in items if isinstance(item, dict)):
+        return result
+
+    def _is_explicitly_non_vat(item: Dict[str, Any]) -> bool:
+        rate = str(item.get("vat_rate") or "").strip().lower()
+        return rate in {"без ндс", "0%", "0.0%"} or "без ндс" in rate or "не облага" in rate
+
+    # If receipt has mixed VAT markers, distribute only among taxable items.
+    # Otherwise keep legacy behavior (all priced items).
+    item_dicts = [i for i in items if isinstance(i, dict)]
+    has_any_rate = any(str(i.get("vat_rate") or "").strip() for i in item_dicts)
+    has_explicit_non_vat = any(_is_explicitly_non_vat(i) for i in item_dicts)
+
+    eligible_items = []
+    for item in item_dicts:
+        price = item.get("total_price")
+        if not isinstance(price, (int, float)) or price <= 0:
+            continue
+        if has_any_rate and has_explicit_non_vat:
+            if _is_explicitly_non_vat(item):
+                continue
+            if not str(item.get("vat_rate") or "").strip():
+                continue
+        eligible_items.append(item)
+
+    eligible_ids = {id(item) for item in eligible_items}
+    total_items_price = sum(float(item.get("total_price") or 0) for item in eligible_items)
+    if total_items_price <= 0:
+        return result
+
+    total = result.get("total")
+    vat_rate_str: Optional[str] = None
+    if isinstance(total, (int, float)) and total > 0:
+        for rate in (22, 20, 10, 5):
+            expected = float(total) * rate / (100 + rate)
+            if abs(expected - float(total_vat)) / float(total_vat) < 0.05:
+                vat_rate_str = f"{rate}%"
+                break
+
+    distributed_sum = 0.0
+    updated_items = []
+    remaining_eligible = len(eligible_items)
+    for i, item in enumerate(items):
+        raw_item = item
+        item = item.copy() if isinstance(item, dict) else item
+        if not isinstance(item, dict):
+            updated_items.append(item)
+            continue
+        if id(raw_item) in eligible_ids:
+            item_total = float(item.get("total_price") or 0)
+            if remaining_eligible == 1:
+                item_vat = round(float(total_vat) - distributed_sum, 2)
+            else:
+                item_vat = round(float(total_vat) * item_total / total_items_price, 2)
+                distributed_sum += item_vat
+            item["vat_amount"] = item_vat
+            if vat_rate_str and not item.get("vat_rate"):
+                item["vat_rate"] = vat_rate_str
+            remaining_eligible -= 1
+        updated_items.append(item)
+
+    result["items"] = updated_items
     return result

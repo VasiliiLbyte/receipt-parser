@@ -164,6 +164,115 @@ def validate_items_consistency(data: Dict[str, Any]) -> Tuple[Dict[str, Any], Li
     return result, warnings
 
 
+def _is_service_line(name: str) -> bool:
+    upper = name.upper()
+    service_markers = (
+        "VAT", "НДС", "TAX", "ВКЛ.НДС", "INCL.VAT", "НАЛОГ",
+        "TOTAL", "ИТОГО", "ИТОГО К ОПЛАТЕ", "СУММА",
+        "ЧАЕВЫЕ", "TIPS", "SERVICE CHARGE",
+    )
+    return any(marker in upper for marker in service_markers)
+
+
+def _extract_explicit_vat_amount(item: Dict[str, Any]) -> Optional[float]:
+    # Do not calculate VAT. Only use explicit numeric amount from service line fields.
+    for key in ("vat_amount", "total_price", "price_per_unit"):
+        value = item.get(key)
+        if isinstance(value, (int, float)):
+            amount = float(value)
+            if amount >= 0:
+                return amount
+    return None
+
+
+def sanitize_items_and_totals(data: Dict[str, Any]) -> Tuple[Dict[str, Any], List[str]]:
+    warnings = []
+    result = data.copy()
+    items = result.get("items") or []
+    if not isinstance(items, list):
+        return result, warnings
+
+    clean_items: List[Dict[str, Any]] = []
+    vat_from_service_lines = 0.0
+    has_vat_service_lines = False
+
+    for idx, item in enumerate(items, 1):
+        if not isinstance(item, dict):
+            warnings.append(f"Товар {idx}: пропущена некорректная запись")
+            continue
+        name = str(item.get("name") or "").strip()
+        if _is_service_line(name):
+            is_vat_line = any(
+                marker in name.upper() for marker in ("VAT", "НДС", "TAX", "ВКЛ.НДС", "INCL.VAT", "НАЛОГ")
+            )
+            has_vat_service_lines = has_vat_service_lines or is_vat_line
+            amount = _extract_explicit_vat_amount(item)
+            if amount is not None and is_vat_line:
+                vat_from_service_lines += amount
+            warnings.append(f"Строка '{name}' исключена из товаров как служебная")
+            continue
+        clean_items.append(item)
+
+    result["items"] = clean_items
+
+    if has_vat_service_lines:
+        current_total_vat = result.get("total_vat")
+        if isinstance(current_total_vat, (int, float)):
+            # Keep the larger explicit value to avoid undercount when OCR captured both aggregate and split VAT lines.
+            result["total_vat"] = max(float(current_total_vat), vat_from_service_lines)
+        else:
+            result["total_vat"] = vat_from_service_lines if vat_from_service_lines > 0 else current_total_vat
+
+    # Heuristic fallback: sometimes VAT line is misclassified as a normal item without VAT/TOTAL markers.
+    # If removing one suspicious item improves consistency with total, drop it.
+    total = result.get("total")
+    if isinstance(total, (int, float)) and isinstance(result.get("items"), list):
+        priced_items: List[Tuple[int, float]] = []
+        for idx, item in enumerate(result["items"]):
+            if not isinstance(item, dict):
+                continue
+            amount = item.get("total_price")
+            if isinstance(amount, (int, float)):
+                priced_items.append((idx, float(amount)))
+
+        if len(priced_items) >= 2:
+            sum_items = sum(v for _, v in priced_items)
+            base_diff = abs(sum_items - float(total))
+            if base_diff > 0.01:
+                best_idx = None
+                best_new_diff = base_diff
+                total_vat = result.get("total_vat")
+
+                for idx, amount in priced_items:
+                    item = result["items"][idx]
+                    quantity = item.get("quantity")
+                    vat_amount = item.get("vat_amount")
+                    is_single = quantity in (None, 1, 1.0)
+                    no_item_vat = vat_amount is None
+                    matches_total_vat = isinstance(total_vat, (int, float)) and abs(amount - float(total_vat)) <= 0.01
+                    suspicious = is_single and no_item_vat and (matches_total_vat or amount > 0)
+                    if not suspicious:
+                        continue
+
+                    new_diff = abs((sum_items - amount) - float(total))
+                    if new_diff + 1e-9 < best_new_diff:
+                        best_new_diff = new_diff
+                        best_idx = idx
+
+                if best_idx is not None and best_new_diff + 1e-9 < base_diff:
+                    removed = result["items"].pop(best_idx)
+                    removed_amount = _extract_explicit_vat_amount(removed)
+                    current_total_vat = result.get("total_vat")
+                    if removed_amount is not None and not isinstance(current_total_vat, (int, float)):
+                        result["total_vat"] = removed_amount
+                    warnings.append(
+                        f"Строка '{removed.get('name')}' исключена как вероятная служебная (НДС/итог), "
+                        f"чтобы согласовать сумму позиций с итогом чека"
+                    )
+
+    return result, warnings
+
+
 def validate_flat_data(data: Dict[str, Any]) -> Tuple[Dict[str, Any], List[str]]:
     """
     Полная валидация плоских данных.
@@ -200,5 +309,10 @@ def validate_flat_data(data: Dict[str, Any]) -> Tuple[Dict[str, Any], List[str]]
     validated_items, items_warnings = validate_items_consistency(result)
     result.update(validated_items)
     warnings.extend(items_warnings)
+
+    # Очистка служебных строк (VAT/TOTAL/Tips), которые не должны быть товарами.
+    sanitized, sanitize_warnings = sanitize_items_and_totals(result)
+    result.update(sanitized)
+    warnings.extend(sanitize_warnings)
     
     return result, warnings

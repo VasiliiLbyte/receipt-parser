@@ -123,7 +123,39 @@ def process_receipt_pipeline(
         except Exception as e:
             print(f"⚠️  Ошибка OpenRouter верификации: {e}")
             pass2_status = "error"
-    
+
+    # Pass 2 can reintroduce service lines into items.
+    # Re-apply sanitization to keep only real items and proper total_vat mapping.
+    try:
+        sanitized_after_pass2, sanitize_warnings = validate.sanitize_items_and_totals(validated_data)
+        validated_data = sanitized_after_pass2
+        validation_warnings.extend(sanitize_warnings)
+    except Exception as e:
+        print(f"⚠️  Ошибка финальной санитизации товаров: {e}")
+
+    # Re-apply date normalization after Pass2 because verifier can overwrite
+    # normalized date with a raw OCR variant.
+    try:
+        if "date" in validated_data:
+            validated_data["date"] = normalize.normalize_date(validated_data.get("date"))
+    except Exception as e:
+        print(f"⚠️  Ошибка финальной нормализации даты после Pass2: {e}")
+
+    # Pass2 may bring back non-normalized vat_rate strings (e.g. "20/120").
+    try:
+        if isinstance(validated_data.get("items"), list):
+            for item in validated_data["items"]:
+                if isinstance(item, dict) and item.get("vat_rate") is not None:
+                    item["vat_rate"] = normalize.normalize_vat_rate(item.get("vat_rate"))
+    except Exception as e:
+        print(f"⚠️  Ошибка нормализации ставок НДС после Pass2: {e}")
+
+    # Distribute total_vat to items proportionally if per-item vat is missing.
+    try:
+        validated_data = normalize.distribute_vat_to_items(validated_data)
+    except Exception as e:
+        print(f"⚠️  Ошибка распределения НДС по позициям: {e}")
+
     # Этап 4: Build canonical result
     print("🏗️  Этап 4: Сборка канонического результата...")
     try:

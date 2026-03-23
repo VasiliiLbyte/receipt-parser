@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import io
 import logging
+import re
 from typing import Dict, List
 
 from aiogram import Bot, Dispatcher, F, Router, types
@@ -21,7 +22,6 @@ from bots.common import (
     BackendError,
     call_export,
     call_parse,
-    format_summary,
     get_export_help_text,
 )
 
@@ -33,18 +33,113 @@ ALLOWED_MIME_TYPES = {"image/jpeg", "image/png", "image/heic"}
 router = Router()
 
 user_results: Dict[int, List[dict]] = {}
+user_controls_message_id: Dict[int, int] = {}
 
 
 def _export_keyboard(count: int = 0) -> types.InlineKeyboardMarkup:
-    label = f" ({count} {'чек' if count == 1 else 'чека' if 2 <= count <= 4 else 'чеков'})" if count > 0 else ""
+    label = f" ({count})" if count > 0 else ""
     return types.InlineKeyboardMarkup(
         inline_keyboard=[
-            [types.InlineKeyboardButton(text=f"📊 Скачать Excel для 1С{label}", callback_data="export_xlsx")],
-            [types.InlineKeyboardButton(text=f"📄 Скачать CSV{label}", callback_data="export_csv")],
-            [types.InlineKeyboardButton(text="🗑 Очистить и начать заново", callback_data="clear")],
-            [types.InlineKeyboardButton(text="❓ Как загрузить в 1С", callback_data="help")],
+            [types.InlineKeyboardButton(text=f"📊 Excel для 1С{label}", callback_data="export_xlsx")],
+            [types.InlineKeyboardButton(text=f"📄 CSV{label}", callback_data="export_csv")],
+            [types.InlineKeyboardButton(text="📋 Показать чеки", callback_data="show_checks")],
+            [types.InlineKeyboardButton(text="🗑 Очистить", callback_data="clear")],
         ]
     )
+
+
+async def _upsert_controls_message(message: Message, user_id: int, count: int) -> None:
+    controls_text = "Выберите действие:"
+    keyboard = _export_keyboard(count)
+    msg_id = user_controls_message_id.get(user_id)
+    if msg_id:
+        try:
+            await message.bot.edit_message_text(
+                chat_id=message.chat.id,
+                message_id=msg_id,
+                text=controls_text,
+                reply_markup=keyboard,
+            )
+            return
+        except Exception:
+            pass
+
+    controls_msg = await message.answer(controls_text, reply_markup=keyboard)
+    user_controls_message_id[user_id] = controls_msg.message_id
+
+
+def _receipt_line(index: int, r: dict) -> str:
+    receipt = r.get("receipt", {}) or {}
+    merchant = r.get("merchant", {}) or {}
+    totals = r.get("totals", {}) or {}
+    items = r.get("items", []) or []
+
+    seller = (merchant.get("organization") or "—").strip()
+    date = (receipt.get("date") or "—").strip()
+    total = totals.get("total")
+    total_str = f"{total:.0f}₽" if isinstance(total, (int, float)) else "—"
+    items_count = len(items)
+    pos_label = "поз." if items_count != 1 else "поз."
+    return f"Чек {index} | {seller} | {date} | {total_str} | {items_count} {pos_label}"
+
+
+def _is_valid_inn(value: str | None) -> bool:
+    if not value:
+        return False
+    inn = re.sub(r"\D+", "", str(value))
+    return len(inn) in (10, 12)
+
+
+def _quality_score(r: dict) -> int:
+    receipt = r.get("receipt", {}) or {}
+    merchant = r.get("merchant", {}) or {}
+    items = r.get("items", []) or []
+    totals = r.get("totals", {}) or {}
+
+    score = 0
+    if receipt.get("date"):
+        score += 2
+    if isinstance(totals.get("total"), (int, float)):
+        score += 2
+    if _is_valid_inn(merchant.get("inn")):
+        score += 3
+
+    org = str(merchant.get("organization") or "")
+    if re.search(r"[А-Яа-яЁё]", org):
+        score += 2
+    if org and not re.search(r"\b(ИП КРОТОВ ИГОРЬ АНАТОЛЬЕВИЧ)\b", org, flags=re.IGNORECASE):
+        score += 1
+
+    russian_items = 0
+    for item in items:
+        name = str((item or {}).get("name") or "")
+        if re.search(r"[А-Яа-яЁё]", name):
+            russian_items += 1
+    score += min(russian_items, 5)
+
+    return score
+
+
+def _dedupe_results_keep_best(results: List[dict]) -> List[dict]:
+    grouped: dict[tuple[str, str], dict] = {}
+    passthrough: List[dict] = []
+
+    for r in results:
+        receipt = r.get("receipt", {}) or {}
+        totals = r.get("totals", {}) or {}
+        date = receipt.get("date")
+        total = totals.get("total")
+
+        if not date or not isinstance(total, (int, float)):
+            passthrough.append(r)
+            continue
+
+        key = (str(date), f"{float(total):.2f}")
+        existing = grouped.get(key)
+        if existing is None or _quality_score(r) > _quality_score(existing):
+            grouped[key] = r
+
+    return passthrough + list(grouped.values())
 
 
 @router.message(CommandStart())
@@ -119,16 +214,22 @@ async def _process_receipt(
         await status_msg.edit_text("❌ Не удалось распознать чек. Попробуйте ещё раз или пришлите более чёткое фото.")
         return
 
-    summary = result.get("summary", {})
-    text = format_summary(summary)
+    # Keep only one final receipt result to avoid pass1/pass2 duplicates in exports.
+    final_result = result.get("verified_result")
+    if not final_result:
+        results_list = result.get("results")
+        if isinstance(results_list, list) and results_list:
+            final_result = results_list[-1]
+        else:
+            final_result = result
 
-    new_result = result.get("results") or [result]
+    new_result = [final_result]
     user_results.setdefault(user_id, [])
     user_results[user_id].extend(new_result)
 
     count = len(user_results[user_id])
-    counter_text = f"\n\n📋 Чек {count} добавлен. Всего в списке: {count} {'чек' if count == 1 else 'чека' if 2 <= count <= 4 else 'чеков'}."
-    await status_msg.edit_text(text + counter_text, reply_markup=_export_keyboard(count))
+    await status_msg.edit_text(f"✅ Чек №{count} добавлен. Пришлите ещё чеки или нажмите «Готово» для экспорта.")
+    await _upsert_controls_message(message, user_id, count)
 
 
 @router.callback_query(F.data == "export_xlsx")
@@ -150,8 +251,11 @@ async def _handle_export(callback: CallbackQuery, fmt: str, filename: str) -> No
         await callback.message.answer("Сначала отправьте фото чека.")  # type: ignore[union-attr]
         return
 
+    deduped_results = _dedupe_results_keep_best(results)
+    user_results[user_id] = deduped_results
+
     try:
-        file_bytes = await call_export(results, fmt, BACKEND_BASE_URL)
+        file_bytes = await call_export(deduped_results, fmt, BACKEND_BASE_URL)
     except BackendError as exc:
         logger.error("Export error: %s", exc)
         await callback.message.answer("❌ Ошибка при формировании файла. Попробуйте ещё раз.")  # type: ignore[union-attr]
@@ -163,10 +267,20 @@ async def _handle_export(callback: CallbackQuery, fmt: str, filename: str) -> No
 
     doc = BufferedInputFile(file_bytes, filename=filename)
     await callback.message.answer_document(doc)  # type: ignore[union-attr]
-    try:
-        await callback.message.edit_reply_markup(reply_markup=None)  # type: ignore[union-attr]
-    except Exception:
-        pass  # сообщение могло быть удалено или слишком старое
+
+
+@router.callback_query(F.data == "show_checks")
+async def cb_show_checks(callback: CallbackQuery) -> None:
+    await callback.answer()
+    user_id = callback.from_user.id
+    results = user_results.get(user_id) or []
+    if not results:
+        await callback.message.answer("Список чеков пуст. Сначала отправьте фото чека.")  # type: ignore[union-attr]
+        return
+
+    lines = [_receipt_line(i, r) for i, r in enumerate(results, 1)]
+    text = "```\n" + "\n".join(lines) + "\n```"
+    await callback.message.answer(text, parse_mode="Markdown")  # type: ignore[union-attr]
 
 
 @router.callback_query(F.data == "help")
@@ -180,6 +294,17 @@ async def cb_clear(callback: CallbackQuery) -> None:
     await callback.answer()
     user_id = callback.from_user.id
     user_results[user_id] = []
+    msg_id = user_controls_message_id.get(user_id)
+    if msg_id:
+        try:
+            await callback.bot.edit_message_reply_markup(
+                chat_id=callback.message.chat.id,  # type: ignore[union-attr]
+                message_id=msg_id,
+                reply_markup=None,
+            )
+        except Exception:
+            pass
+        user_controls_message_id.pop(user_id, None)
     await callback.message.answer("🗑 Список чеков очищен. Отправьте новое фото.")
 
 

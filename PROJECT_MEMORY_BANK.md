@@ -45,3 +45,25 @@
 
 ## Известные проблемы
 - Накопление чеков в боте: `user_results` может перезаписываться, из-за чего история/набор результатов пользователя ведет себя некорректно (теряются ранее добавленные чеки).
+
+## Обновления за 23.03.2026 (сегодня)
+- Проведен полный аудит batch-экспорта по 23 чекам (`r01-r24`, кроме исключенного `r05`).
+- В `src/pipeline/orchestrator.py` добавлена повторная нормализация `date` после Pass 2, чтобы верификация не возвращала "сырую" OCR-дату поверх нормализованной.
+- В `src/pipeline/normalize.py` улучшено распределение НДС:
+  - при смешанных ставках НДС распределение `total_vat` выполняется только по позициям, явно облагаемым НДС;
+  - позиции с `без НДС`/`0%` не получают искусственный `vat_amount`.
+- В `src/pipeline/normalize.py` добавена очистка хвостов НДС в наименовании товара (например: `НАС20%`, `НДС 20%`, `НДС20/120`) с сохранением ставки в `vat_rate`.
+- В `src/pipeline/normalize.py` добавлен OCR-fix для названия организации: `САЭК-ГЛОБАЛ` -> `СДЭК-ГЛОБАЛ`.
+
+## Тестовое покрытие (добавлено сегодня)
+- `tests/test_orchestrator_pass2_sanitize.py`
+  - `test_pass2_date_is_renormalized_after_verify`
+- `tests/test_service_lines_filtering.py`
+  - `test_distribute_vat_skips_explicit_without_vat_items`
+- `tests/test_normalize_rules.py`
+  - `test_normalize_organization_fixes_saek_to_sdek_global`
+  - `test_normalize_item_name_strips_trailing_vat_marker`
+
+## Проверка
+- Локальный запуск: `pytest tests/test_normalize_rules.py tests/test_service_lines_filtering.py tests/test_orchestrator_pass2_sanitize.py -q`
+- Результат: `28 passed`

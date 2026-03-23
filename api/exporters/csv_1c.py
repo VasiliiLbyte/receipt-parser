@@ -51,6 +51,11 @@ def _normalize_inn(inn_raw):
     return str(inn_raw)
 
 
+def _is_exportable_item(item: dict) -> bool:
+    name = str(item.get("name") or "").strip()
+    return bool(name)
+
+
 def build_csv_1c(results: list[dict]) -> str:
     """
     Формирует CSV-строку в формате для импорта в 1С.
@@ -66,6 +71,7 @@ def build_csv_1c(results: list[dict]) -> str:
         receipt = r.get("receipt", {}) or {}
         merchant = r.get("merchant", {}) or {}
         items = r.get("items", []) or []
+        export_items = [item for item in items if isinstance(item, dict) and _is_exportable_item(item)]
 
         date = receipt.get("date", "") or ""
         receipt_number = _pick(
@@ -75,7 +81,7 @@ def build_csv_1c(results: list[dict]) -> str:
         inn = _normalize_inn(merchant.get("inn")) or ""
         organization = merchant.get("organization", "") or ""
 
-        if not items:
+        if not export_items:
             writer.writerow(
                 [
                     date,
@@ -95,7 +101,7 @@ def build_csv_1c(results: list[dict]) -> str:
             )
             continue
 
-        for item in items:
+        for item in export_items:
             writer.writerow(
                 [
                     date,
