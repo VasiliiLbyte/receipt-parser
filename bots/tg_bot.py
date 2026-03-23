@@ -35,11 +35,13 @@ router = Router()
 user_results: Dict[int, List[dict]] = {}
 
 
-def _export_keyboard() -> types.InlineKeyboardMarkup:
+def _export_keyboard(count: int = 0) -> types.InlineKeyboardMarkup:
+    label = f" ({count} {'чек' if count == 1 else 'чека' if 2 <= count <= 4 else 'чеков'})" if count > 0 else ""
     return types.InlineKeyboardMarkup(
         inline_keyboard=[
-            [types.InlineKeyboardButton(text="📊 Скачать Excel для 1С", callback_data="export_xlsx")],
-            [types.InlineKeyboardButton(text="📄 Скачать CSV", callback_data="export_csv")],
+            [types.InlineKeyboardButton(text=f"📊 Скачать Excel для 1С{label}", callback_data="export_xlsx")],
+            [types.InlineKeyboardButton(text=f"📄 Скачать CSV{label}", callback_data="export_csv")],
+            [types.InlineKeyboardButton(text="🗑 Очистить и начать заново", callback_data="clear")],
             [types.InlineKeyboardButton(text="❓ Как загрузить в 1С", callback_data="help")],
         ]
     )
@@ -120,10 +122,13 @@ async def _process_receipt(
     summary = result.get("summary", {})
     text = format_summary(summary)
 
-    results_for_export = result.get("results") or [result]
-    user_results[user_id] = results_for_export
+    new_result = result.get("results") or [result]
+    user_results.setdefault(user_id, [])
+    user_results[user_id].extend(new_result)
 
-    await status_msg.edit_text(text, reply_markup=_export_keyboard())
+    count = len(user_results[user_id])
+    counter_text = f"\n\n📋 Чек {count} добавлен. Всего в списке: {count} {'чек' if count == 1 else 'чека' if 2 <= count <= 4 else 'чеков'}."
+    await status_msg.edit_text(text + counter_text, reply_markup=_export_keyboard(count))
 
 
 @router.callback_query(F.data == "export_xlsx")
@@ -164,6 +169,14 @@ async def _handle_export(callback: CallbackQuery, fmt: str, filename: str) -> No
 async def cb_help(callback: CallbackQuery) -> None:
     await callback.answer()
     await callback.message.answer(get_export_help_text())  # type: ignore[union-attr]
+
+
+@router.callback_query(F.data == "clear")
+async def cb_clear(callback: CallbackQuery) -> None:
+    await callback.answer()
+    user_id = callback.from_user.id
+    user_results[user_id] = []
+    await callback.message.answer("🗑 Список чеков очищен. Отправьте новое фото.")
 
 
 @router.message()

@@ -13,6 +13,8 @@ load_dotenv(dotenv_path=env_path)
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
+OPENROUTER_EXTRACT_MODEL = os.getenv("OPENROUTER_EXTRACT_MODEL", "google/gemini-2.0-flash-001")
+OPENROUTER_VERIFY_MODEL = os.getenv("OPENROUTER_VERIFY_MODEL", "google/gemini-2.5-flash-preview")
 
 # === НАСТРОЙКИ ПРИЛОЖЕНИЯ ===
 MAX_FILE_SIZE_MB = int(os.getenv("MAX_FILE_SIZE_MB", "20"))
@@ -33,13 +35,22 @@ MIN_RECEIPT_VISIBLE_RATIO = float(os.getenv("MIN_RECEIPT_VISIBLE_RATIO", "0.70")
 # === ВАЛИДАЦИЯ КОНФИГУРАЦИИ ===
 def validate_config():
     """Проверяет обязательные настройки"""
+    import warnings
+
     errors = []
-    
+
+    if not OPENROUTER_API_KEY:
+        errors.append("Не настроен OPENROUTER_API_KEY. Добавьте его в файл .env")
+
     if not OPENAI_API_KEY or OPENAI_API_KEY == "sk-your-openai-api-key-here":
-        errors.append("Не настроен OpenAI API ключ. Добавьте его в файл .env")
+        warnings.warn(
+            "OPENAI_API_KEY не задан — прямой OpenAI API недоступен "
+            "(не требуется, если используется OpenRouter)",
+            stacklevel=2,
+        )
     
     if MAX_FILE_SIZE_MB > 20:
-        errors.append(f"MAX_FILE_SIZE_MB ({MAX_FILE_SIZE_MB}) превышает лимит OpenAI (20 МБ)")
+        errors.append(f"MAX_FILE_SIZE_MB ({MAX_FILE_SIZE_MB}) превышает лимит API (20 МБ)")
     
     if MAX_RETRIES < 1 or MAX_RETRIES > 10:
         errors.append(f"MAX_RETRIES ({MAX_RETRIES}) должен быть между 1 и 10")
