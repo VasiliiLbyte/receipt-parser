@@ -27,6 +27,9 @@ SAVE_INTERMEDIATE_FILES = os.getenv("SAVE_INTERMEDIATE_FILES", "false").lower() 
 INTERMEDIATE_FILES_PATH = os.getenv("INTERMEDIATE_FILES_PATH", "./temp")
 API_TIMEOUT = int(os.getenv("API_TIMEOUT", "60"))
 
+# Минимальная видимость чека (0.0-1.0) — чеки, перекрытые более чем на (1 - ratio), будут отклонены
+MIN_RECEIPT_VISIBLE_RATIO = float(os.getenv("MIN_RECEIPT_VISIBLE_RATIO", "0.70"))
+
 # === ВАЛИДАЦИЯ КОНФИГУРАЦИИ ===
 def validate_config():
     """Проверяет обязательные настройки"""

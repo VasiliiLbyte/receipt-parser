@@ -18,7 +18,7 @@ def extract_json_from_response(content):
     return content.strip()
 
 
-def verify_item_names(image_base64: str, pass1_data: dict) -> dict:
+def verify_item_names(image_base64: str, pass1_data: dict, force: bool = False) -> dict:
     """
     Верификация названий товаров через OpenRouter (Gemini Flash).
     
@@ -28,6 +28,7 @@ def verify_item_names(image_base64: str, pass1_data: dict) -> dict:
     Args:
         image_base64: изображение чека в base64
         pass1_data: результат первичного распознавания (Pass 1)
+        force: принудительный запуск Pass 2 даже если нет расхождений
         
     Returns:
         Обновлённый dict с исправленными названиями товаров
@@ -37,8 +38,11 @@ def verify_item_names(image_base64: str, pass1_data: dict) -> dict:
         print("⚠️ Pass 2 пропущен: OPENROUTER_API_KEY не задан")
         return pass1_data
     
-    # Проверяем наличие товаров
-    if not pass1_data.get("items") or len(pass1_data["items"]) == 0:
+    # Запускаем Pass 2 всегда если force=True,
+    # или если есть расхождение сумм, или если есть items
+    amounts_mismatch = pass1_data.get("_amounts_mismatch", False)
+    if not force and not amounts_mismatch and not pass1_data.get("items"):
+        print("⏭️  Pass 2 пропущен: нет позиций и расхождений сумм")
         return pass1_data
     
     print("🔍 Pass 2: верификация названий через OpenRouter (Gemini 3.1 Flash Lite)...")
@@ -76,6 +80,13 @@ def verify_item_names(image_base64: str, pass1_data: dict) -> dict:
 - Также проверь поле "receipt_number": найди номер чека на изображении и
   сравни с JSON. Копируй только само число/код без префиксов (Чек №, ФД и т.д.).
   Сохраняй дефисы и буквы внутри номера. Если нечитаемо — оставь как есть.
+- Проверь все числовые суммы: `total`, `total_vat`, а также для каждого товара
+  `price_per_unit`, `quantity`, `total_price`, `vat_amount`.
+  Сравни каждое число с тем, что написано на чеке буквально.
+  Типичные OCR-путаницы: «0»↔«8», «1»↔«7», «3»↔«8», «5»↔«6».
+  Обращай внимание на разделитель копеек (запятая или точка) и разделитель тысяч.
+  Если видишь расхождение — исправь на то, что написано на чеке.
+  Если нечитаемо — оставь как есть из JSON.
 
 Результат первичного распознавания:
 {pass1_json}
@@ -169,6 +180,40 @@ def verify_item_names(image_base64: str, pass1_data: dict) -> dict:
             if verified_receipt_clean:
                 print(f"🧾 Pass 2 исправил номер чека: '{original_receipt}' → '{verified_receipt_clean}'")
                 pass1_data["receipt_number"] = verified_receipt_clean
+
+        # Верифицируем итоговые суммы
+        for field in ["total", "total_vat"]:
+            verified_val = pass2_data.get(field)
+            original_val = pass1_data.get(field)
+            if verified_val is not None and verified_val != original_val:
+                try:
+                    verified_float = float(str(verified_val).replace(',', '.'))
+                    print(f"💰 Pass 2 исправил {field}: {original_val} → {verified_float}")
+                    pass1_data[field] = verified_float
+                except Exception:
+                    print(f"⚠️  Pass 2 вернул некорректное значение {field}: {verified_val}")
+
+        # Верифицируем числа в позициях товаров
+        verified_items = pass2_data.get("items", [])
+        original_items = pass1_data.get("items", [])
+        if verified_items and len(verified_items) == len(original_items):
+            for idx, (v_item, o_item) in enumerate(zip(verified_items, original_items)):
+                for key in ["price_per_unit", "quantity", "total_price", "vat_amount"]:
+                    v_val = v_item.get(key)
+                    o_val = o_item.get(key)
+                    if v_val is not None and v_val != o_val:
+                        try:
+                            v_float = float(str(v_val).replace(',', '.'))
+                            name = o_item.get("name", f"товар #{idx+1}")
+                            print(f"💰 Pass 2 исправил {key} у '{name}': {o_val} → {v_float}")
+                            pass1_data["items"][idx][key] = v_float
+                        except Exception:
+                            pass
+        elif verified_items and len(verified_items) != len(original_items):
+            print(f"⚠️  Pass 2 вернул {len(verified_items)} позиций вместо {len(original_items)} — числа не обновляем")
+
+        # Убираем служебный флаг перед возвратом
+        pass1_data.pop("_amounts_mismatch", None)
         
         return pass1_data
         

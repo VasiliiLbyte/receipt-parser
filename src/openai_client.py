@@ -26,7 +26,6 @@ def postprocess_data(data):
     from .pipeline.normalize import normalize_flat_data
     return normalize_flat_data(data)
 
-
 def extract_receipt_data_from_image(image_path):
     """
     Main entry point - same signature as the old function.
