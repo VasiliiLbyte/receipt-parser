@@ -57,6 +57,30 @@ def _num(value) -> float | None:
     """Safe cast to float; returns None on failure."""
     if value is None:
         return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _pick(*values):
+    for value in values:
+        if value is not None:
+            return value
+    return None
+
+
+def _normalize_inn(inn_raw):
+    if inn_raw is None:
+        return None
+    if isinstance(inn_raw, str):
+        return inn_raw
+    if isinstance(inn_raw, (int, float)):
+        try:
+            return str(int(float(inn_raw)))
+        except (TypeError, ValueError, OverflowError):
+            return str(inn_raw)
+    return str(inn_raw)
 
 
 def _parse_iso_date(value) -> date | None:
@@ -82,10 +106,6 @@ def _parse_iso_date(value) -> date | None:
 
 def _is_ready_for_export(doc_date, seller: str, items: list[dict]) -> bool:
     return bool(doc_date and seller and items)
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return None
 
 
 def build_excel_1c(results: list[dict], filename: str = "receipts_1c.xlsx") -> str:
@@ -128,11 +148,14 @@ def build_excel_1c(results: list[dict], filename: str = "receipts_1c.xlsx") -> s
 
         doc_date_str = receipt.get("date", "") or ""
         doc_date = _parse_iso_date(doc_date_str)
-        receipt_number = receipt.get("receipt_number", "") or ""
-        inn = merchant.get("inn", "") or ""
+        receipt_number = _pick(
+            receipt.get("receipt_number"),
+            r.get("receipt_number"),
+        ) or ""
+        inn = _normalize_inn(merchant.get("inn"))
         seller = merchant.get("organization", "") or ""
-        total_sum = _num(totals.get("total"))
-        total_vat = _num(taxes.get("total_vat"))
+        total_sum = _num(_pick(totals.get("total"), r.get("total")))
+        total_vat = _num(_pick(taxes.get("total_vat"), r.get("total_vat")))
 
         status = (
             "Готово к выгрузке"
@@ -171,7 +194,7 @@ def build_excel_1c(results: list[dict], filename: str = "receipts_1c.xlsx") -> s
                     doc_date if doc_date else doc_date_str,
                     receipt_number,
                     seller,
-                    inn,
+                    inn or "",
                     "Кассовый чек",
                     "Нет данных",
                     "шт",
@@ -195,11 +218,11 @@ def build_excel_1c(results: list[dict], filename: str = "receipts_1c.xlsx") -> s
                     "Кассовый чек",
                     item.get("name", ""),
                     "шт",
-                    _num(item.get("quantity")),
-                    _num(item.get("price_per_unit")),
-                    _num(item.get("total_price")),
-                    item.get("vat_rate", ""),
-                    _num(item.get("vat_amount")),
+                    _num(_pick(item.get("quantity"), item.get("qty"), item.get("count"))),
+                    _num(_pick(item.get("price_per_unit"), item.get("price"), item.get("unit_price"))),
+                    _num(_pick(item.get("total_price"), item.get("total"), item.get("amount"))),
+                    _pick(item.get("vat_rate"), item.get("tax_rate"), item.get("nds_rate")) or "",
+                    _num(_pick(item.get("vat_amount"), item.get("tax_amount"), item.get("nds_amount"))),
                     "Распознано из фото чека",
                 ]
             )

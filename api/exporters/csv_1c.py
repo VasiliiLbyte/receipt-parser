@@ -31,6 +31,26 @@ def _fmt(value) -> str:
     return str(value)
 
 
+def _pick(*values):
+    for value in values:
+        if value is not None:
+            return value
+    return None
+
+
+def _normalize_inn(inn_raw):
+    if inn_raw is None:
+        return None
+    if isinstance(inn_raw, str):
+        return inn_raw
+    if isinstance(inn_raw, (int, float)):
+        try:
+            return str(int(float(inn_raw)))
+        except (TypeError, ValueError, OverflowError):
+            return str(inn_raw)
+    return str(inn_raw)
+
+
 def build_csv_1c(results: list[dict]) -> str:
     """
     Формирует CSV-строку в формате для импорта в 1С.
@@ -48,8 +68,11 @@ def build_csv_1c(results: list[dict]) -> str:
         items = r.get("items", []) or []
 
         date = receipt.get("date", "") or ""
-        receipt_number = receipt.get("receipt_number", "") or ""
-        inn = merchant.get("inn", "") or ""
+        receipt_number = _pick(
+            receipt.get("receipt_number"),
+            r.get("receipt_number"),
+        ) or ""
+        inn = _normalize_inn(merchant.get("inn")) or ""
         organization = merchant.get("organization", "") or ""
 
         if not items:
@@ -82,11 +105,11 @@ def build_csv_1c(results: list[dict]) -> str:
                     "Кассовый чек",
                     item.get("name", ""),
                     "шт",
-                    _fmt(item.get("quantity")),
-                    _fmt(item.get("price_per_unit")),
-                    _fmt(item.get("total_price")),
-                    item.get("vat_rate", ""),
-                    _fmt(item.get("vat_amount")),
+                    _fmt(_pick(item.get("quantity"), item.get("qty"), item.get("count"))),
+                    _fmt(_pick(item.get("price_per_unit"), item.get("price"), item.get("unit_price"))),
+                    _fmt(_pick(item.get("total_price"), item.get("total"), item.get("amount"))),
+                    _pick(item.get("vat_rate"), item.get("tax_rate"), item.get("nds_rate")) or "",
+                    _fmt(_pick(item.get("vat_amount"), item.get("tax_amount"), item.get("nds_amount"))),
                     "Распознано из фото чека",
                 ]
             )

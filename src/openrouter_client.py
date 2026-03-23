@@ -45,7 +45,7 @@ def verify_item_names(image_base64: str, pass1_data: dict, force: bool = False) 
         print("⏭️  Pass 2 пропущен: нет позиций и расхождений сумм")
         return pass1_data
     
-    print("🔍 Pass 2: верификация названий через OpenRouter (Gemini 3.1 Flash Lite)...")
+    print(f"🔍 Pass 2: верификация через OpenRouter ({OPENROUTER_VERIFY_MODEL})...")
     
     # Формируем JSON для промпта
     pass1_json = json.dumps(pass1_data, ensure_ascii=False, indent=2)
