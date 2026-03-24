@@ -74,3 +74,11 @@
 ## Проверка
 - Локальный запуск: `pytest tests/test_normalize_rules.py tests/test_service_lines_filtering.py tests/test_orchestrator_pass2_sanitize.py -q`
 - Результат: `28 passed`
+
+## Тестирование 1С
+- Цель: быстрый smoke-тест интеграции Receipt Parser с минимальной тестовой базой 1С 8.3.
+- Шаг 1: подготовить тестовую конфигурацию по инструкции в `integrations/1c/setup_test_config.bsl`.
+- Шаг 2: проверить HTTP-соединение скриптом `integrations/1c/test_load_receipt.bsl` (Консоль кода в режиме предприятия).
+- Шаг 3: проверить внешнюю обработку `integrations/1c/ReceiptParserLoader.bsl`.
+- Шаг 4: проверить импорт CommerceML XML через `Файл -> Открыть` в 1С.
+- Быстрый сценарий целиком: `integrations/1c/QUICKSTART.md`.

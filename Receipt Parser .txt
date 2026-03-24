@@ -1,0 +1,103 @@
+Receipt Parser 
+Receipt Parser — система автоматического разбора кассовых чеков из фотографий с двухэтапным AI-пайплайном, REST API и Telegram-ботом, месендер MAX. Результат экспортируется в форматы XLSX/CSV, совместимые с 1С .
+Назначение - использование бухгалтерами для легкого сканирования с личного телефона и отправкой файла либо на телефон, либо по почте либо напрямую в 1с. 
+
+Как это работает
+Система принимает изображение чека и прогоняет его через двухэтапный пайплайн :
+
+Pass 1 — Извлечение (src/providers/openrouter.py): Vision-модель читает изображение и возвращает сырой JSON с данными чека
+
+Pass 2 — Верификация (src/openrouter_client.py): вторая LLM-модель проверяет и уточняет названия товаров, даты, суммы
+
+Нормализация (src/pipeline/normalize.py): приведение дат → YYYY-MM-DD, ИНН → только цифры 10/12 знаков, очистка хвостов НДС из названий, OCR-фиксы
+
+Валидация (src/pipeline/validate.py): Pydantic-проверка схем
+
+ResultBuilder (src/result_builder.py): сборка финального объекта ответа
+
+Структура проекта
+text
+receipt-parser/
+│
+├── main.py                    # CLI-точка входа
+├── parser_core.py             # Устаревший core (legacy)
+├── requirements.txt
+├── pytest.ini
+├── .env.example               # Шаблон переменных окружения
+├── PROJECT_MEMORY_BANK.md     # Живая документация проекта
+├── Cloud.md                   # Заметки по деплою
+│
+├── api/                       # FastAPI backend
+│   ├── app.py                 # Эндпоинты: /parse, /export/xlsx, /export/csv
+│   ├── models.py              # Pydantic-модели запросов/ответов API
+│   ├── services/
+│   │   └── parser_service.py  # Связка API с pipeline
+│   └── exporters/             # Экспортёры в Excel и CSV (1C-friendly)
+│
+├── bots/                      # Боты-клиенты
+│   ├── tg_bot.py              # Telegram-бот (aiogram, long-polling)
+│   ├── common.py              # Общие хелперы для ботов (HTTP к backend)
+│   ├── config.py              # Конфигурация ботов (proxy и т.п.)
+│   └── max_bot_stub.py        # Заглушка для будущего MAX-бота
+│
+├── src/                       # Ядро системы
+│   ├── config.py              # Загрузка .env, настройки провайдеров
+│   ├── schemas.py             # Pydantic-схемы данных чека
+│   ├── openrouter_client.py   # Pass 2: верификация через OpenRouter
+│   ├── vision_utils.py        # Утилиты работы с изображениями
+│   ├── result_builder.py      # Сборка финального результата
+│   ├── openai_client.py       # Legacy OpenAI-клиент
+│   ├── deepseek_client.py     # Legacy DeepSeek-клиент
+│   ├── ocr_utils.py           # OCR-фиксы (САЭК→СДЭК и др.)
+│   ├── providers/
+│   │   └── openrouter.py      # Pass 1: извлечение через OpenRouter
+│   └── pipeline/
+│       ├── orchestrator.py    # Оркестрация всего пайплайна
+│       ├── normalize.py       # Нормализация дат, ИНН, НДС, имён
+│       └── validate.py        # Валидация данных чека
+│
+├── tests/                     # Тесты (28+ проходят)
+│   ├── conftest.py
+│   ├── test_normalize_rules.py
+│   ├── test_vat_extraction.py
+│   ├── test_date_parsing.py
+│   ├── test_inn_parsing.py
+│   ├── test_pass2.py
+│   ├── test_orchestrator_pass2_sanitize.py
+│   ├── test_service_lines_filtering.py
+│   ├── test_exporters.py
+│   ├── test_api_export.py
+│   ├── test_api_parse.py
+│   └── ... (всего ~25 файлов)
+│
+└── test_receipts/             # Тестовые изображения чеков (r01–r24)
+Конфигурация (.env)
+Обязательные переменные для работы :
+
+Переменная	Описание
+Переменная	Описание
+OPENROUTER_API_KEY	Ключ API OpenRouter
+OPENROUTER_MODEL	Модель для Pass 1 (извлечение)
+OPENROUTER_VERIFY_MODEL	Модель для Pass 2 (верификация)
+TELEGRAM_BOT_TOKEN	Токен Telegram-бота
+Переменные OPENAI_API_KEY и DEEPSEEK_API_KEY присутствуют как legacy и не нужны для основного потока .
+
+API-эндпоинты
+Метод	Путь	Описание
+POST	/parse	Загрузить фото чека, получить JSON
+POST	/export/xlsx	Экспорт результатов в Excel (1С)
+POST	/export/csv	Экспорт результатов в CSV (1С)
+GET	/summary	Сводка по результатам
+GET	/help	Справка по API
+Правила домена
+Это критичные бизнес-правила, которые нельзя нарушать :
+
+НДС не вычисляется — только читается с чека
+
+Дата всегда приводится к YYYY-MM-DD или None
+
+ИНН: только цифры, длина 10 или 12 (иначе пусто)
+
+Названия товаров копируются максимально дословно
+
+Позиции без НДС / 0% не получают искусственный vat_amount
