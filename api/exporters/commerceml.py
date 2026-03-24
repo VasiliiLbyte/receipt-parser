@@ -4,6 +4,7 @@ CommerceML 2.09 exporter for 1C-compatible XML import.
 
 from __future__ import annotations
 
+import logging
 import os
 import uuid
 from datetime import date, datetime
@@ -11,6 +12,7 @@ import xml.etree.ElementTree as ET
 
 
 DEFAULT_COMMERCEML_VERSION = "2.09"
+logger = logging.getLogger(__name__)
 
 
 def _safe_text(value) -> str:
@@ -84,6 +86,47 @@ def _add_text_node(parent: ET.Element, tag: str, value: str) -> ET.Element:
     return node
 
 
+def _normalize_result_shape(result) -> dict:
+    """
+    Normalize supported receipt payload shapes to canonical exporter shape.
+    Supported:
+    - canonical: {"receipt","merchant","items","totals","taxes"}
+    - flattened v1: {"date","organization","inn","total","total_vat","items"}
+    """
+    if not isinstance(result, dict):
+        return {"receipt": {}, "merchant": {}, "items": [], "totals": {}, "taxes": {}}
+
+    has_canonical_keys = any(key in result for key in ("receipt", "merchant", "totals", "taxes"))
+    if has_canonical_keys:
+        return {
+            "receipt": result.get("receipt", {}) or {},
+            "merchant": result.get("merchant", {}) or {},
+            "items": result.get("items", []) or [],
+            "totals": result.get("totals", {}) or {},
+            "taxes": result.get("taxes", {}) or {},
+        }
+
+    # Flattened /api/v1/receipts shape.
+    return {
+        "receipt": {
+            "date": result.get("date"),
+            "receipt_number": result.get("id"),
+        },
+        "merchant": {
+            "organization": result.get("organization"),
+            "inn": result.get("inn"),
+        },
+        "items": result.get("items", []) or [],
+        "totals": {
+            "total": result.get("total"),
+            "total_vat": result.get("total_vat"),
+        },
+        "taxes": {
+            "total_vat": result.get("total_vat"),
+        },
+    }
+
+
 def build_commerceml(results: list[dict]) -> bytes:
     """
     Принимает список результатов парсинга чеков.
@@ -101,13 +144,17 @@ def build_commerceml(results: list[dict]) -> bytes:
         },
     )
 
+    if not results:
+        logger.warning("build_commerceml received empty results list")
+        return ET.tostring(root, encoding="utf-8", xml_declaration=True)
+
     for index, result in enumerate(results, start=1):
-        payload = result if isinstance(result, dict) else {}
-        receipt = payload.get("receipt", {}) or {}
-        merchant = payload.get("merchant", {}) or {}
-        items = payload.get("items", []) or []
-        totals = payload.get("totals", {}) or {}
-        taxes = payload.get("taxes", {}) or {}
+        payload = _normalize_result_shape(result)
+        receipt = payload["receipt"]
+        merchant = payload["merchant"]
+        items = payload["items"]
+        totals = payload["totals"]
+        taxes = payload["taxes"]
 
         document = ET.SubElement(root, "Документ")
         _add_text_node(document, "Ид", str(uuid.uuid4()))

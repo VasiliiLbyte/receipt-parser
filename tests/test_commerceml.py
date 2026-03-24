@@ -57,3 +57,40 @@ def test_commerceml_none_fields_safe():
     xml_bytes = build_commerceml(payload)
     root = ET.fromstring(xml_bytes)
     assert root.find("./Документ/Товары/Товар") is not None
+
+
+def test_commerceml_three_documents():
+    payload = [
+        {
+            "id": "r-1",
+            "date": "2026-03-20",
+            "organization": "ООО Первый",
+            "inn": "7701234567",
+            "total": 100.0,
+            "total_vat": 16.67,
+            "items": [{"name": "Товар 1", "quantity": 1, "price": 100.0, "amount": 100.0}],
+        },
+        {
+            "id": "r-2",
+            "date": "2026-03-21",
+            "organization": "ООО Второй",
+            "inn": "7701234567",
+            "total": 200.0,
+            "total_vat": 33.33,
+            "items": [{"name": "Товар 2", "quantity": 1, "price": 200.0, "amount": 200.0}],
+        },
+        {
+            "id": "r-3",
+            "date": "2026-03-22",
+            "organization": "ООО Третий",
+            "inn": "7701234567",
+            "total": 300.0,
+            "total_vat": 50.0,
+            "items": [{"name": "Товар 3", "quantity": 1, "price": 300.0, "amount": 300.0}],
+        },
+    ]
+
+    xml_bytes = build_commerceml(payload)
+    root = ET.fromstring(xml_bytes)
+    documents = root.findall("Документ")
+    assert len(documents) == 3
