@@ -10,7 +10,7 @@ import asyncio
 import io
 import logging
 import re
-from typing import Dict, List
+from typing import List
 
 from aiogram import Bot, Dispatcher, F, Router, types
 from aiogram.client.session.aiohttp import AiohttpSession
@@ -24,6 +24,7 @@ from bots.common import (
     call_parse,
     get_export_help_text,
 )
+from src.storage.session_store import session_store
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s  %(levelname)-8s  %(name)s  %(message)s")
 logger = logging.getLogger(__name__)
@@ -32,8 +33,7 @@ ALLOWED_MIME_TYPES = {"image/jpeg", "image/png", "image/heic"}
 
 router = Router()
 
-user_results: Dict[int, List[dict]] = {}
-user_controls_message_id: Dict[int, int] = {}
+user_controls_message_id: dict[int, int] = {}
 
 
 def _export_keyboard(count: int = 0) -> types.InlineKeyboardMarkup:
@@ -223,11 +223,9 @@ async def _process_receipt(
         else:
             final_result = result
 
-    new_result = [final_result]
-    user_results.setdefault(user_id, [])
-    user_results[user_id].extend(new_result)
-
-    count = len(user_results[user_id])
+    await session_store.add_receipt(user_id, final_result)
+    receipts = await session_store.get_receipts(user_id)
+    count = len(receipts)
     await status_msg.edit_text(f"✅ Чек №{count} добавлен. Пришлите ещё чеки или нажмите «Готово» для экспорта.")
     await _upsert_controls_message(message, user_id, count)
 
@@ -246,13 +244,13 @@ async def _handle_export(callback: CallbackQuery, fmt: str, filename: str) -> No
     await callback.answer()
     user_id = callback.from_user.id
 
-    results = user_results.get(user_id)
+    results = await session_store.get_receipts(user_id)
     if not results:
         await callback.message.answer("Сначала отправьте фото чека.")  # type: ignore[union-attr]
         return
 
     deduped_results = _dedupe_results_keep_best(results)
-    user_results[user_id] = deduped_results
+    await session_store.set_receipts(user_id, deduped_results)
 
     try:
         file_bytes = await call_export(deduped_results, fmt, BACKEND_BASE_URL)
@@ -273,7 +271,7 @@ async def _handle_export(callback: CallbackQuery, fmt: str, filename: str) -> No
 async def cb_show_checks(callback: CallbackQuery) -> None:
     await callback.answer()
     user_id = callback.from_user.id
-    results = user_results.get(user_id) or []
+    results = await session_store.get_receipts(user_id)
     if not results:
         await callback.message.answer("Список чеков пуст. Сначала отправьте фото чека.")  # type: ignore[union-attr]
         return
@@ -293,7 +291,7 @@ async def cb_help(callback: CallbackQuery) -> None:
 async def cb_clear(callback: CallbackQuery) -> None:
     await callback.answer()
     user_id = callback.from_user.id
-    user_results[user_id] = []
+    await session_store.clear_receipts(user_id)
     msg_id = user_controls_message_id.get(user_id)
     if msg_id:
         try:
@@ -315,14 +313,18 @@ async def fallback(message: Message) -> None:
 
 
 async def main() -> None:
+    await session_store.init()
     session = AiohttpSession(proxy=TG_PROXY) if TG_PROXY else None
     bot = Bot(token=TG_TOKEN, session=session)
     dp = Dispatcher()
     dp.include_router(router)
-    if TG_PROXY:
-        logger.info("Using proxy: %s", TG_PROXY.split("@")[-1])
-    logger.info("Telegram bot started (long polling)")
-    await dp.start_polling(bot)
+    try:
+        if TG_PROXY:
+            logger.info("Using proxy: %s", TG_PROXY.split("@")[-1])
+        logger.info("Telegram bot started (long polling)")
+        await dp.start_polling(bot)
+    finally:
+        await session_store.close()
 
 
 if __name__ == "__main__":

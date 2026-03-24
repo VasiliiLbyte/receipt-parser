@@ -32,4 +32,5 @@ processed.jpg
 # Отладочные изображения
 debug_*.jpg
 debug_*.png
+data/*.db
 

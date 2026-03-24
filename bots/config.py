@@ -11,6 +11,7 @@ load_dotenv()
 TG_TOKEN: str = os.environ.get("TG_TOKEN", "")
 MAX_TOKEN: str = os.environ.get("MAX_TOKEN", "")
 BACKEND_BASE_URL: str = os.environ.get("BACKEND_BASE_URL", "http://localhost:8000")
+DB_PATH = os.getenv("DB_PATH", "./data/sessions.db")
 
 # Прокси для Telegram API (api.telegram.org заблокирован у многих провайдеров в РФ).
 # Примеры:

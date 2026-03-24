@@ -28,6 +28,8 @@
 - `POST /export/xlsx` — экспорт результатов в xlsx (1C-friendly)
 - `POST /export/csv` — экспорт результатов в csv (1C-friendly)
 - Telegram-бот (`bots/tg_bot.py`) с отправкой фото/документов и получением результата парсинга
+- Персистентное хранилище сессий (SQLite, `src/storage/session_store.py`)
+- `DB_PATH` настраивается через `.env`
 
 ## Конфигурация моделей и ключей
 Основной runtime использует OpenRouter:
