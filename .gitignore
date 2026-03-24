@@ -33,4 +33,7 @@ processed.jpg
 debug_*.jpg
 debug_*.png
 data/*.db
+exchange/*.xml
+exchange/*.xlsx
+exchange/*.csv
 

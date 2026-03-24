@@ -27,6 +27,11 @@
 - `POST /parse` — загрузка изображения и разбор чека
 - `POST /export/xlsx` — экспорт результатов в xlsx (1C-friendly)
 - `POST /export/csv` — экспорт результатов в csv (1C-friendly)
+- CommerceML 2 XML: `POST /export/xml`
+- REST API для 1С: `GET /api/v1/receipts` (и связанные `/api/v1/receipts/*`)
+- Push-вебхук в 1С: `WEBHOOK_1C_URL` (fire-and-forget после успешного парсинга)
+- Файловый обмен: `GET /exchange/drop` (сохранение в `EXCHANGE_DIR`)
+- Внешняя обработка 1С: `integrations/1c/ReceiptParserLoader.bsl`
 - Telegram-бот (`bots/tg_bot.py`) с отправкой фото/документов и получением результата парсинга
 - Персистентное хранилище сессий (SQLite, `src/storage/session_store.py`)
 - `DB_PATH` настраивается через `.env`

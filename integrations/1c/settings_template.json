@@ -1,0 +1,7 @@
+{
+  "server_url": "http://localhost:8000",
+  "api_key": "",
+  "user_id": 1,
+  "document_type": "AdvanceReport",
+  "auto_post": true
+}

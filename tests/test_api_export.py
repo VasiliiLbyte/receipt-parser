@@ -23,6 +23,16 @@ def test_export_csv_success(api_client, sample_receipt_result):
     assert "Дата документа;Номер документа-основания;Продавец;ИНН продавца" in body_text
 
 
+def test_export_xml_success(api_client, sample_receipt_result):
+    response = api_client.post("/export/xml", json={"results": [sample_receipt_result]})
+
+    assert response.status_code == 200
+    assert "application/xml" in response.headers.get("content-type", "")
+    assert "receipt_export_1c.xml" in response.headers.get("content-disposition", "")
+    assert len(response.content) > 0
+    assert "КоммерческаяИнформация" in response.content.decode("utf-8")
+
+
 def test_export_xlsx_empty_results_validation_error(api_client):
     response = api_client.post("/export/xlsx", json={"results": []})
     assert response.status_code == 422
@@ -30,6 +40,11 @@ def test_export_xlsx_empty_results_validation_error(api_client):
 
 def test_export_csv_empty_results_validation_error(api_client):
     response = api_client.post("/export/csv", json={"results": []})
+    assert response.status_code == 422
+
+
+def test_export_xml_empty_results_validation_error(api_client):
+    response = api_client.post("/export/xml", json={"results": []})
     assert response.status_code == 422
 
 

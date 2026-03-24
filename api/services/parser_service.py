@@ -4,9 +4,11 @@ Service layer for receipt parsing via uploaded files.
 
 import os
 import shutil
+import asyncio
 from fastapi import UploadFile
 
 from parser_core import process_receipt
+from api.services.webhook_1c import push_to_1c_webhook
 
 
 ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".heic", ".heif"}
@@ -41,5 +43,8 @@ async def parse_uploaded_file(upload_file: UploadFile, temp_dir: str) -> dict:
     result = process_receipt(dest_path)
     if result is None:
         raise ValueError("Не удалось распарсить чек. Проверьте качество изображения.")
+
+    # Fire-and-forget: webhook does not block parse response.
+    asyncio.create_task(push_to_1c_webhook(result))
 
     return result
